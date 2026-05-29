@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.tools/
+config.js
+qa/
+.env
+.env.local
+.env.*.local
+.vercel/

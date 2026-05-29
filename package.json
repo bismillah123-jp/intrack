@@ -1,0 +1,27 @@
+{
+  "name": "dompetrapi",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "restore": "node scripts/restore-sources.cjs",
+    "predev": "node scripts/restore-sources.cjs",
+    "dev": "vite --host 127.0.0.1 --port 8787",
+    "prebuild": "node scripts/restore-sources.cjs",
+    "build": "vite build",
+    "prepreview": "node scripts/restore-sources.cjs",
+    "preview": "vite preview --host 127.0.0.1 --port 8787"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.106.2",
+    "chart.js": "4.5.1",
+    "lucide-react": "1.16.0",
+    "react": "19.2.6",
+    "react-chartjs-2": "5.3.1",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "vite": "8.0.14"
+  }
+}
