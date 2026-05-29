@@ -37,6 +37,7 @@ import {
   Sun,
   Target,
   Trash2,
+  UserRound,
   WalletCards,
   X
 } from "lucide-react";
@@ -891,7 +892,8 @@ function Workspace(props) {
     transactions: ["Transaksi", "Catat pemasukan dan pengeluaran harian."],
     budgets: ["Budget", "Pantau limit kategori bulan berjalan."],
     goals: ["Goals", "Target tabungan dengan deadline yang jelas."],
-    pro: ["AI Pro", "Health score, advisor, scanner struk, dan report analyzer OpenRouter."]
+    pro: ["AI Pro", "Health score, advisor, scanner struk, dan report analyzer OpenRouter."],
+    account: ["Akun", "Kelola profil, tema, dan preferensi aplikasi."]
   };
   const [title, subtitle] = titleMap[page] || titleMap.dashboard;
 
@@ -928,11 +930,13 @@ function Workspace(props) {
 
       <main className="workspace-main">
         <header className="mobile-header">
-          <button className="icon-btn" onClick={() => setMobileNav(true)} aria-label="Buka menu">
-            <Menu size={20} />
-          </button>
           <Brand />
-          <ThemeModeButton theme={theme} setTheme={setTheme} />
+          <div className="mobile-header-actions">
+            <button className="icon-btn" onClick={() => go("app/account")} aria-label="Buka akun">
+              <UserRound size={19} />
+            </button>
+            <ThemeModeButton theme={theme} setTheme={setTheme} />
+          </div>
         </header>
 
         {demo ? (
@@ -943,84 +947,257 @@ function Workspace(props) {
           </div>
         ) : null}
 
-        <div className="page-head">
-          <div>
-            <p className="kicker">DompetRapi</p>
-            <h2>{title}</h2>
-            <span>{subtitle}</span>
+        {page !== "dashboard" ? (
+          <div className="page-head">
+            <div>
+              <p className="kicker">DompetRapi</p>
+              <h2>{title}</h2>
+              <span>{subtitle}</span>
+            </div>
+            <HeaderAction page={page} />
           </div>
-          <HeaderAction page={page} />
-        </div>
+        ) : null}
 
-        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} />}
+        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} />}
         {page === "wallets" && <Wallets {...props} />}
         {page === "transactions" && <Transactions {...props} />}
         {page === "budgets" && <Budgets {...props} />}
         {page === "goals" && <Goals {...props} />}
         {page === "pro" && <ProLab {...props} />}
+        {page === "account" && <AccountPanel {...props} />}
       </main>
+      <MobileBottomNav page={page} />
     </div>
   );
 }
 
 function HeaderAction({ page }) {
-  if (page === "transactions") return <button className="btn primary" onClick={() => document.querySelector("[data-amount-input]")?.focus()}><Plus size={18} /> Transaksi</button>;
+  if (page === "transactions") return <button className="btn primary" onClick={openTransactionComposer}><Plus size={18} /> Transaksi</button>;
   return <button className="btn ghost" onClick={() => go("app/pro")}><Sparkles size={18} /> AI Pro</button>;
 }
 
-function Dashboard({ data, budgets, metrics, theme }) {
-  const trend = trendData(data);
-  const donut = categoryDonut(data);
+function openTransactionComposer() {
+  go("app/transactions");
+  window.setTimeout(() => document.querySelector("[data-amount-input]")?.focus(), 120);
+}
+
+function MobileBottomNav({ page }) {
+  const items = [
+    ["dashboard", LayoutDashboard, "Dashboard"],
+    ["wallets", WalletCards, "Dompet"],
+    ["add", Plus, "Tambah"],
+    ["transactions", ReceiptText, "Transaksi"],
+    ["account", UserRound, "Akun"]
+  ];
 
   return (
-    <div className="dashboard-grid">
-      <Metric icon={WalletCards} label="Saldo bersih" value={money(metrics.netWorth)} />
-      <Metric icon={ArrowDownLeft} label="Pemasukan" value={money(metrics.monthlyIncome)} />
-      <Metric icon={ArrowUpRight} label="Pengeluaran" value={money(metrics.monthlyExpense)} />
-      <Metric icon={Gauge} label="Health score" value={`${metrics.healthScore}/100`} />
+    <nav className="mobile-dock" aria-label="Navigasi utama mobile">
+      {items.map(([key, Icon, label]) => {
+        const isAdd = key === "add";
+        const active = key === page || (key === "wallets" && page === "wallets");
+        return (
+          <button
+            key={key}
+            className={`${isAdd ? "dock-add" : ""} ${active ? "active" : ""}`}
+            onClick={isAdd ? openTransactionComposer : () => go(`app/${key}`)}
+            aria-label={isAdd ? "Tambah transaksi" : label}
+          >
+            <span><Icon size={isAdd ? 34 : 22} /></span>
+            <small>{label}</small>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
-      <section className="panel wide">
-        <PanelHead title="Tren 6 bulan" badge="Income vs expense" />
-        <div className="chart-box">
-          <Bar
-            data={{
-              labels: trend.map((item) => item.label),
-              datasets: [
-                { label: "Pemasukan", data: trend.map((item) => item.income), backgroundColor: theme.accent, borderRadius: 8 },
-                { label: "Pengeluaran", data: trend.map((item) => item.expense), backgroundColor: "#fb7185", borderRadius: 8 }
-              ]
-            }}
-            options={chartOptions}
-          />
+function Dashboard({ data, budgets, metrics, theme, setUi }) {
+  const trend = trendData(data);
+  const topExpense = topExpenseCategory(data);
+  const totalBudgetLimit = sum(budgets, "limit");
+  const totalBudgetSpent = sum(budgets, "spent");
+  const budgetBase = totalBudgetLimit || metrics.monthlyIncome || Math.max(metrics.monthlyExpense, 1);
+  const expenseProgress = Math.round((metrics.monthlyExpense / budgetBase) * 100);
+  const budgetRealization = totalBudgetLimit ? Math.round((totalBudgetSpent / totalBudgetLimit) * 100) : 0;
+  const remainingBudget = Math.max(0, budgetBase - metrics.monthlyExpense);
+  const runway = metrics.monthlyExpense ? metrics.assets / metrics.monthlyExpense : 0;
+  const billBudget = budgets.find((budget) => /tagihan|listrik|internet|cicilan|sewa/i.test(budget.categoryName));
+  const upcomingBill = billBudget ? Math.max(0, number(billBudget.limit) - number(billBudget.spent)) : 0;
+  const latestTransactions = data.transactions.slice(0, 5);
+  const menuItems = [
+    [Ruler, "Budget", "Limit kategori", () => go("app/budgets")],
+    [ScanLine, "Scanner", "Scan struk", () => openProTab(setUi, "receipt")],
+    [Target, "Goals", "Target nabung", () => go("app/goals")],
+    [WalletCards, "Aset", "Semua saldo", () => go("app/wallets")],
+    [CreditCard, "Utang", "Kartu & PayLater", () => go("app/wallets")],
+    [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")],
+    [Bot, "AI Advisor", "Chat personal", () => openProTab(setUi, "chat")],
+    [BarChart3, "Laporan", "Analisis AI", () => openProTab(setUi, "report")]
+  ];
+
+  return (
+    <div className="dashboard-home">
+      <section className="balance-hero">
+        <div className="balance-hero-top">
+          <div>
+            <span>Sekilas hari ini</span>
+            <h2>{money(metrics.netWorth)}</h2>
+            <p>saldo bersih dari semua dompet</p>
+          </div>
+          <button className="hero-lock" aria-label="Mode privasi saldo">
+            <ShieldCheck size={20} />
+          </button>
+        </div>
+
+        <div className="balance-row">
+          <div>
+            <small>Pemasukan</small>
+            <strong className="income-text">{shortMoney(metrics.monthlyIncome)}</strong>
+          </div>
+          <div>
+            <small>Pengeluaran</small>
+            <strong className="expense-text">{shortMoney(metrics.monthlyExpense)}</strong>
+          </div>
+        </div>
+
+        <div className="hero-progress">
+          <div>
+            <span>Budget tersisa</span>
+            <b>{money(remainingBudget)}</b>
+          </div>
+          <Progress value={expenseProgress} danger={expenseProgress > 100} />
         </div>
       </section>
 
-      <section className="panel">
-        <PanelHead title="Kategori" badge="Bulan ini" />
-        <div className="donut-wrap">
-          <Doughnut
-            data={{
-              labels: donut.map((item) => item.name),
-              datasets: [{ data: donut.map((item) => item.total), backgroundColor: donut.map((item) => item.color), borderWidth: 0 }]
-            }}
-            options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 10 } } } }}
-          />
+      <section className="panel main-menu-panel">
+        <div className="menu-title">
+          <h3>Menu Utama</h3>
+          <button className="btn quiet" onClick={() => go("app/account")}><Palette size={16} /> Ubah</button>
+        </div>
+        <div className="main-menu-grid">
+          {menuItems.map(([Icon, label, caption, action]) => (
+            <button className="menu-action" key={label} onClick={action}>
+              <span><Icon size={25} /></span>
+              <strong>{label}</strong>
+              <small>{caption}</small>
+            </button>
+          ))}
         </div>
       </section>
 
-      <section className="panel">
-        <PanelHead title="Budget aktif" badge={periodLabel()} />
-        <div className="stack">
-          {budgets.length ? budgets.slice(0, 4).map((budget) => <BudgetLine key={budget.id} budget={budget} />) : <Empty title="Belum ada budget" copy="Buat limit kategori bulan ini." />}
+      <section className="dashboard-insights">
+        <article className="panel dash-card progress-card">
+          <PanelHead title="Progres pengeluaran" badge={`${expenseProgress}%`} />
+          <div className="progress-ring" style={{ "--value": `${Math.min(expenseProgress, 100)}%` }}>
+            <strong>{Math.min(expenseProgress, 999)}%</strong>
+            <span>{periodLabel()}</span>
+          </div>
+          <Progress value={expenseProgress} danger={expenseProgress > 100} />
+          <p>{money(metrics.monthlyExpense)} terpakai dari {money(budgetBase)}.</p>
+        </article>
+
+        <article className="panel dash-card activity-card">
+          <PanelHead title="Aktivitas bulanan" badge="6 bulan" />
+          <div className="mini-chart">
+            <Bar
+              data={{
+                labels: trend.map((item) => item.label),
+                datasets: [
+                  { label: "Pemasukan", data: trend.map((item) => item.income), backgroundColor: theme.accent, borderRadius: 10 },
+                  { label: "Pengeluaran", data: trend.map((item) => item.expense), backgroundColor: "#fb7185", borderRadius: 10 }
+                ]
+              }}
+              options={chartOptions}
+            />
+          </div>
+        </article>
+
+        <article className="panel dash-card latest-card">
+          <PanelHead title="Transaksi terbaru" badge={`${data.transactions.length} transaksi`} />
+          <div className="stack">
+            {latestTransactions.length ? latestTransactions.map((tx) => <TransactionItem key={tx.id} tx={tx} data={data} />) : <Empty title="Belum ada transaksi" copy="Tambahkan pemasukan atau pengeluaran pertama." />}
+          </div>
+        </article>
+
+        <InsightCard icon={ArrowDownLeft} label="Total pemasukan" value={money(metrics.monthlyIncome)} tone="income" />
+        <InsightCard icon={ArrowUpRight} label="Total pengeluaran" value={money(metrics.monthlyExpense)} tone="expense" />
+        <InsightCard icon={PiggyBank} label="Runway dana darurat" value={`${runway.toFixed(1)} bulan`} copy={`Aset likuid ${money(metrics.assets)}`} />
+        <InsightCard icon={CalendarDays} label="Tagihan mendatang" value={money(upcomingBill)} copy={billBudget?.categoryName || "Belum ada budget tagihan"} />
+        <InsightCard icon={Activity} label="Pengeluaran terbesar" value={topExpense?.name || "Belum ada"} copy={topExpense ? money(topExpense.total) : "Catat transaksi dulu"} tone="expense" />
+
+        <article className="panel dash-card budget-realization">
+          <PanelHead title="Realisasi anggaran" badge={`${budgetRealization}%`} />
+          <div className="budget-realization-list">
+            {budgets.length ? budgets.slice(0, 4).map((budget) => <BudgetLine key={budget.id} budget={budget} />) : <Empty title="Belum ada budget" copy="Buat limit kategori bulan ini." />}
+          </div>
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function openProTab(setUi, tab) {
+  setUi((current) => ({ ...current, proTab: tab }));
+  go("app/pro");
+}
+
+function InsightCard({ icon: Icon, label, value, copy, tone }) {
+  return (
+    <article className={`panel dash-card insight-card ${tone || ""}`}>
+      <span className="insight-icon"><Icon size={19} /></span>
+      <small>{label}</small>
+      <strong>{value}</strong>
+      {copy ? <p>{copy}</p> : null}
+    </article>
+  );
+}
+
+function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout }) {
+  const shortcuts = [
+    [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
+    [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
+    [ReceiptText, "Transaksi", "Riwayat & tambah", openTransactionComposer],
+    [Sparkles, "AI Pro", "Chat dan scanner", () => go("app/pro")]
+  ];
+
+  return (
+    <div className="account-view">
+      <section className="panel account-hero">
+        <div className="account-avatar">
+          {(profile?.full_name || "DR").slice(0, 2).toUpperCase()}
+        </div>
+        <div>
+          <span>Kelola akun</span>
+          <h3>{profile?.full_name || "Pengguna DompetRapi"}</h3>
+          <p>{demo ? "Demo mode aktif. Data hanya contoh dan tidak disimpan." : backend === "fintrack" ? "Supabase fintrack terhubung." : "Supabase app terhubung."}</p>
+        </div>
+        <span className={`pill ${plan === "pro" ? "gold" : ""}`}>{demo ? "Demo Pro" : plan}</span>
+      </section>
+
+      <section className="panel settings-panel">
+        <PanelHead title="Pengaturan tampilan" badge="Tema" />
+        <p>Pilih mode gelap/terang dan warna aksen yang paling nyaman buat kamu.</p>
+        <ThemeControls theme={theme} setTheme={setTheme} />
+      </section>
+
+      <section className="panel account-shortcuts">
+        <PanelHead title="Navigasi cepat" badge="Akun" />
+        <div className="account-shortcut-grid">
+          {shortcuts.map(([Icon, label, copy, action]) => (
+            <button key={label} onClick={action}>
+              <Icon size={21} />
+              <strong>{label}</strong>
+              <span>{copy}</span>
+            </button>
+          ))}
         </div>
       </section>
 
-      <section className="panel wide">
-        <PanelHead title="Transaksi terbaru" badge={`${data.transactions.length} transaksi`} />
-        <div className="stack">
-          {data.transactions.length ? data.transactions.slice(0, 6).map((tx) => <TransactionItem key={tx.id} tx={tx} data={data} />) : <Empty title="Belum ada transaksi" copy="Tambahkan pemasukan atau pengeluaran pertama." />}
-        </div>
-      </section>
+      {!demo ? (
+        <button className="btn primary account-logout" onClick={onLogout}>
+          <LogOut size={18} /> Keluar dari akun
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1623,6 +1800,7 @@ function Brand() {
 }
 
 async function loadConfig() {
+  if (new URLSearchParams(location.search).get("demo") === "1") return null;
   const envConfig = {
     SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
     SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY
