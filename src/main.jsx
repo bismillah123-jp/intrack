@@ -9,12 +9,14 @@ import {
   BarChart3,
   Bot,
   CalendarDays,
+  Camera,
   Check,
   ChevronRight,
   CircleDollarSign,
   CreditCard,
   FileSearch,
   Gauge,
+  ImageUp,
   LayoutDashboard,
   LineChart,
   Loader2,
@@ -29,6 +31,7 @@ import {
   ReceiptText,
   Ruler,
   ScanLine,
+  SendHorizontal,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -107,7 +110,13 @@ const initialUi = {
   goalEditId: null,
   txType: "expense",
   toast: null,
-  advisor: [],
+  proTab: "chat",
+  advisor: [
+    {
+      role: "assistant",
+      text: "Halo, aku AI DompetRapi. Tanya apa saja soal cashflow, budget, utang, atau target tabunganmu."
+    }
+  ],
   receipt: [],
   report: []
 };
@@ -496,11 +505,42 @@ function App() {
   }
 
   function runAdvisor(question) {
+    const userQuestion = String(question || "").trim() || "Analisis kondisi keuangan bulan ini dan beri 3 saran paling penting.";
+    const loadingId = `loading-${Date.now()}`;
     runOpenRouter({
       slot: "advisor",
-      prompt: question || "Analisis kondisi keuangan bulan ini dan beri 3 saran paling penting.",
-      system: "Kamu adalah AI financial advisor DompetRapi untuk pengguna Indonesia. Jawab dalam bahasa Indonesia, praktis, singkat, dan berbasis data. Hindari klaim kepastian investasi.",
-      context: buildFinanceContext(data, budgets, metrics)
+      prompt: userQuestion,
+      system: "Kamu adalah AI financial advisor DompetRapi untuk pengguna Indonesia. Jawab dalam bahasa Indonesia natural, praktis, singkat, dan berbasis data. Hindari klaim kepastian investasi. Jangan pakai markdown tebal, tanda *** atau karakter China/Jepang/Korea.",
+      context: buildFinanceContext(data, budgets, metrics),
+      onStart: () => {
+        setUi((current) => ({
+          ...current,
+          proTab: "chat",
+          advisor: [
+            ...normalizeChatMessages(current.advisor),
+            { role: "user", text: userQuestion },
+            { id: loadingId, role: "assistant", text: "Sedang membaca data keuanganmu...", loading: true }
+          ]
+        }));
+      },
+      onSuccess: (lines) => {
+        setUi((current) => ({
+          ...current,
+          advisor: replaceLoadingMessage(current.advisor, loadingId, {
+            role: "assistant",
+            text: lines.join("\n")
+          })
+        }));
+      },
+      onError: (lines) => {
+        setUi((current) => ({
+          ...current,
+          advisor: replaceLoadingMessage(current.advisor, loadingId, {
+            role: "assistant",
+            text: lines.join("\n")
+          })
+        }));
+      }
     });
   }
 
@@ -514,20 +554,25 @@ function App() {
     });
   }
 
-  function runReport() {
+  function runReport(extraPrompt) {
+    const focus = String(extraPrompt || "").trim();
     runOpenRouter({
       slot: "report",
-      prompt: "Buat laporan analisis keuangan bulan ini. Sertakan ringkasan, risiko utama, dan aksi prioritas.",
-      system: "Kamu adalah report analyzer DompetRapi. Buat laporan dalam bahasa Indonesia dengan bullet pendek dan actionable.",
+      prompt: `Buat laporan analisis keuangan bulan ini. Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
+      system: "Kamu adalah report analyzer DompetRapi. Buat laporan dalam bahasa Indonesia dengan kalimat pendek dan actionable. Jangan pakai markdown tebal, tanda *** atau karakter China/Jepang/Korea.",
       context: buildFinanceContext(data, budgets, metrics)
     });
   }
 
-  async function runOpenRouter({ slot, prompt, system, context, imageUrl }) {
-    setUi((current) => ({
-      ...current,
-      [slot]: ["Menghubungi OpenRouter Kimi K2.6..."]
-    }));
+  async function runOpenRouter({ slot, prompt, system, context, imageUrl, onStart, onSuccess, onError }) {
+    if (onStart) {
+      onStart();
+    } else {
+      setUi((current) => ({
+        ...current,
+        [slot]: ["Menghubungi OpenRouter Kimi K2.6..."]
+      }));
+    }
 
     try {
       const response = await fetch("/api/openrouter", {
@@ -542,12 +587,21 @@ function App() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "OpenRouter gagal merespons.");
       const lines = splitAiText(payload.text);
-      setUi((current) => ({ ...current, [slot]: lines }));
+      if (onSuccess) {
+        onSuccess(lines, payload);
+      } else {
+        setUi((current) => ({ ...current, [slot]: lines }));
+      }
       logAi(slot, { lines, model: "moonshotai/kimi-k2.6:free" }, prompt);
     } catch (error) {
       const reason = (error.message || "OpenRouter belum bisa dihubungi").replace(/[.]+$/, "");
       const fallback = `AI belum bisa aktif: ${reason}. Set OPENROUTER_API_KEY di environment Vercel atau jalankan lewat server yang punya /api/openrouter.`;
-      setUi((current) => ({ ...current, [slot]: [fallback] }));
+      const lines = splitAiText(fallback);
+      if (onError) {
+        onError(lines);
+      } else {
+        setUi((current) => ({ ...current, [slot]: lines }));
+      }
       notify(fallback);
     }
   }
@@ -1138,55 +1192,236 @@ function Goals({ data, ui, setUi, demo, onGoal, onDelete }) {
   );
 }
 
-function ProLab({ data, metrics, isPro, ui, onAdvisor, onReceipt, onReport }) {
+function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onReport }) {
+  const activeTab = ui.proTab || "chat";
+  const [receiptDraft, setReceiptDraft] = useState({ text: "", imageUrl: "", imageData: "", imageName: "" });
+  const [reportPrompt, setReportPrompt] = useState("");
+  const chatMessages = normalizeChatMessages(ui.advisor);
+  const tabs = [
+    ["chat", Bot, "Chat"],
+    ["receipt", ScanLine, "Scan Struk"],
+    ["report", FileSearch, "Analisis"],
+    ["health", Gauge, "Health"]
+  ];
+
+  function switchTab(tab) {
+    setUi((current) => ({ ...current, proTab: tab }));
+  }
+
+  function handleReceiptImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setReceiptDraft((current) => ({
+        ...current,
+        imageData: String(reader.result || ""),
+        imageName: file.name,
+        imageUrl: ""
+      }));
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  }
+
+  function clearReceiptImage() {
+    setReceiptDraft((current) => ({ ...current, imageData: "", imageName: "" }));
+  }
+
   return (
-    <div className="pro-layout">
-      <section className="panel health-panel">
-        <PanelHead title="Financial health" badge={isPro ? "Pro aktif" : "Locked"} />
-        <div className="score-orbit" style={{ "--score": `${metrics.healthScore}%` }}>
-          <strong>{metrics.healthScore}</strong>
-          <span>score</span>
+    <div className="pro-lab">
+      <section className="pro-command">
+        <div>
+          <span className="mini-badge gold">AI Pro aktif</span>
+          <h3>AI keuangan yang terasa seperti ngobrol.</h3>
+          <p>Chat, scan struk, dan analisis laporan sekarang dipisah biar lebih fokus dan enak dipakai di HP.</p>
         </div>
-        <div className="health-list">
-          <span><CircleDollarSign size={16} /> Savings rate {metrics.savingsRate}%</span>
-          <span><CreditCard size={16} /> Debt {money(metrics.debt)}</span>
-          <span><Activity size={16} /> {data.goals.length} goals aktif</span>
+        <div className="pro-command-stats" aria-label="Ringkasan AI Pro">
+          <span><Gauge size={16} /> {metrics.healthScore}/100</span>
+          <span><CircleDollarSign size={16} /> {metrics.savingsRate}% saving</span>
+          <span><Activity size={16} /> {data.goals.length} goals</span>
         </div>
-        <span className="mini-badge gold">Pro aktif</span>
       </section>
 
-      <section className={`panel ai-panel ${!isPro ? "locked-panel" : ""}`}>
-        <PanelHead title="AI advisor" badge="OpenRouter" />
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          onAdvisor(new FormData(event.currentTarget).get("question"));
-        }}>
-          <textarea name="question" disabled={!isPro} placeholder="Bulan ini aku perlu hemat di mana?" />
-          <button className="btn primary" disabled={!isPro}><Bot size={18} /> Tanya AI</button>
-        </form>
-        <AiOutput lines={ui.advisor} />
-      </section>
+      <nav className="pro-tabs" aria-label="Navigasi AI Pro">
+        {tabs.map(([key, Icon, label]) => (
+          <button key={key} className={activeTab === key ? "active" : ""} onClick={() => switchTab(key)}>
+            <Icon size={18} />
+            {label}
+          </button>
+        ))}
+      </nav>
 
-      <section className={`panel ai-panel ${!isPro ? "locked-panel" : ""}`}>
-        <PanelHead title="Receipt scanner" badge="OpenRouter" />
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          const values = new FormData(event.currentTarget);
-          onReceipt(values.get("receipt"), values.get("image_url"));
-        }}>
-          <textarea name="receipt" disabled={!isPro} placeholder={"Kopi 28000\nRoti 22000\nTotal 50000"} />
-          <input name="image_url" type="url" disabled={!isPro} placeholder="URL gambar struk opsional" />
-          <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
-        </form>
-        <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
-      </section>
+      <div className="pro-grid">
+        <aside className="pro-side panel">
+          <PanelHead title="Financial health" badge={isPro ? "Pro" : "Locked"} />
+          <div className="score-orbit compact" style={{ "--score": `${metrics.healthScore}%` }}>
+            <strong>{metrics.healthScore}</strong>
+            <span>score</span>
+          </div>
+          <div className="health-list modern">
+            <span><CircleDollarSign size={16} /> Savings rate {metrics.savingsRate}%</span>
+            <span><CreditCard size={16} /> Debt {money(metrics.debt)}</span>
+            <span><Activity size={16} /> {data.goals.length} goals aktif</span>
+          </div>
+          <div className="ai-mini-stack">
+            <button className="btn quiet" onClick={() => switchTab("chat")}><Bot size={16} /> Buka chat</button>
+            <button className="btn quiet" onClick={() => switchTab("receipt")}><ScanLine size={16} /> Scan struk</button>
+          </div>
+        </aside>
 
-      <section className={`panel ai-panel ${!isPro ? "locked-panel" : ""}`}>
-        <PanelHead title="Report analyzer" badge="OpenRouter" />
-        <p className="muted">Ringkasan otomatis dari transaksi dan budget bulan ini.</p>
-        <button className="btn primary" disabled={!isPro} onClick={onReport}><FileSearch size={18} /> Buat analisis AI</button>
-        <AiOutput lines={ui.report} />
-      </section>
+        <section className="pro-stage">
+          {activeTab === "chat" ? (
+            <section className={`ai-panel chat-panel ${!isPro ? "locked-panel" : ""}`}>
+              <div className="chat-window">
+                <div className="chat-top">
+                  <div className="chat-avatar"><Bot size={19} /></div>
+                  <div>
+                    <strong>DompetRapi Advisor</strong>
+                    <span>Online untuk bantu baca cashflow</span>
+                  </div>
+                  <span className="mini-badge">Chat</span>
+                </div>
+                <div className="chat-thread">
+                  {chatMessages.map((message, index) => <ChatBubble key={message.id || `${message.role}-${index}`} message={message} />)}
+                </div>
+                <form className="chat-composer" onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const question = new FormData(form).get("question");
+                  onAdvisor(question);
+                  form.reset();
+                }}>
+                  <textarea name="question" disabled={!isPro} rows={1} placeholder="Tanya: budget mana yang bocor bulan ini?" />
+                  <button className="icon-btn send-btn" disabled={!isPro} aria-label="Kirim chat">
+                    <SendHorizontal size={18} />
+                  </button>
+                </form>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === "receipt" ? (
+            <section className={`panel ai-panel receipt-panel ${!isPro ? "locked-panel" : ""}`}>
+              <PanelHead title="Receipt scanner" badge="Upload atau kamera" />
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const image = receiptDraft.imageData || receiptDraft.imageUrl;
+                onReceipt(receiptDraft.text, image);
+              }}>
+                <div className="capture-grid">
+                  <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
+                    <input type="file" accept="image/*" disabled={!isPro} onChange={handleReceiptImage} />
+                    <ImageUp size={22} />
+                    <strong>Upload gambar</strong>
+                    <span>PNG atau JPG struk</span>
+                  </label>
+                  <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
+                    <input type="file" accept="image/*" capture="environment" disabled={!isPro} onChange={handleReceiptImage} />
+                    <Camera size={22} />
+                    <strong>Ambil foto</strong>
+                    <span>Buka kamera HP</span>
+                  </label>
+                </div>
+
+                {receiptDraft.imageData ? (
+                  <div className="receipt-preview">
+                    <img src={receiptDraft.imageData} alt="Preview struk" />
+                    <div>
+                      <strong>{receiptDraft.imageName || "Struk siap discan"}</strong>
+                      <span>Gambar akan dikirim ke AI saat scan.</span>
+                      <button type="button" className="btn quiet" onClick={clearReceiptImage}>Hapus gambar</button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <textarea
+                  value={receiptDraft.text}
+                  onChange={(event) => setReceiptDraft((current) => ({ ...current, text: event.target.value }))}
+                  disabled={!isPro}
+                  placeholder={"Tambahkan catatan kalau perlu:\nKopi 28000\nRoti 22000\nTotal 50000"}
+                />
+                <input
+                  value={receiptDraft.imageUrl}
+                  onChange={(event) => setReceiptDraft((current) => ({ ...current, imageUrl: event.target.value, imageData: "", imageName: "" }))}
+                  name="image_url"
+                  type="url"
+                  disabled={!isPro}
+                  placeholder="Atau tempel URL gambar struk"
+                />
+                <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
+              </form>
+              <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
+            </section>
+          ) : null}
+
+          {activeTab === "report" ? (
+            <section className={`panel ai-panel report-panel ${!isPro ? "locked-panel" : ""}`}>
+              <PanelHead title="Report analyzer" badge="Insight bulanan" />
+              <div className="report-kpis">
+                <div><span>Pengeluaran</span><strong>{money(metrics.monthlyExpense)}</strong></div>
+                <div><span>Pemasukan</span><strong>{money(metrics.monthlyIncome)}</strong></div>
+                <div><span>Net worth</span><strong>{money(metrics.netWorth)}</strong></div>
+              </div>
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                onReport(reportPrompt);
+              }}>
+                <textarea
+                  value={reportPrompt}
+                  onChange={(event) => setReportPrompt(event.target.value)}
+                  disabled={!isPro}
+                  placeholder="Fokus laporan, misalnya: cari pengeluaran yang paling perlu dipangkas dan target saving bulan depan."
+                />
+                <button className="btn primary" disabled={!isPro}><FileSearch size={18} /> Buat analisis AI</button>
+              </form>
+              <AiOutput lines={ui.report} variant="report" />
+            </section>
+          ) : null}
+
+          {activeTab === "health" ? (
+            <section className="panel ai-panel health-deep-panel">
+              <PanelHead title="Health detail" badge="Score 0-100" />
+              <div className="health-detail-grid">
+                <div className="health-detail-card">
+                  <Gauge size={20} />
+                  <span>Skor</span>
+                  <strong>{metrics.healthScore}/100</strong>
+                </div>
+                <div className="health-detail-card">
+                  <CircleDollarSign size={20} />
+                  <span>Savings rate</span>
+                  <strong>{metrics.savingsRate}%</strong>
+                </div>
+                <div className="health-detail-card">
+                  <CreditCard size={20} />
+                  <span>Utang</span>
+                  <strong>{money(metrics.debt)}</strong>
+                </div>
+              </div>
+              <button className="btn primary" onClick={() => {
+                switchTab("chat");
+                onAdvisor("Jelaskan financial health score saya dan beri tiga langkah paling realistis untuk naik level.");
+              }}>
+                <Bot size={18} /> Bahas score di chat
+              </button>
+            </section>
+          ) : null}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ChatBubble({ message }) {
+  const lines = splitAiText(message.text || "");
+  return (
+    <div className={`chat-bubble ${message.role === "user" ? "user" : "assistant"}`}>
+      {message.loading ? (
+        <span className="typing-dots"><i /><i /><i /></span>
+      ) : (
+        lines.map((line, index) => <p key={index}>{line}</p>)
+      )}
     </div>
   );
 }
@@ -1333,8 +1568,18 @@ function Progress({ value, danger }) {
 }
 
 function AiOutput({ lines }) {
-  if (!lines.length) return null;
-  return <div className="ai-output">{lines.map((line, index) => <p key={index}>{line}</p>)}</div>;
+  const safeLines = Array.isArray(lines) ? lines : lines ? [lines] : [];
+  if (!safeLines.length) return null;
+  return (
+    <div className="ai-output">
+      {safeLines.map((line, index) => (
+        <article className="ai-result-card" key={index}>
+          <span>{String(index + 1).padStart(2, "0")}</span>
+          <p>{cleanAiLine(line)}</p>
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function Empty({ title, copy }) {
@@ -1765,10 +2010,55 @@ function buildFinanceContext(data, budgets, metrics) {
   }, null, 2);
 }
 
+function normalizeChatMessages(messages) {
+  if (!Array.isArray(messages) || !messages.length) return initialUi.advisor;
+  if (typeof messages[0] === "string") {
+    return messages.map((text) => ({ role: "assistant", text: cleanAiLine(text) }));
+  }
+  return messages.map((message) => ({
+    id: message.id,
+    role: message.role === "user" ? "user" : "assistant",
+    text: cleanAiLine(message.text || ""),
+    loading: Boolean(message.loading)
+  }));
+}
+
+function replaceLoadingMessage(messages, loadingId, replacement) {
+  const normalized = normalizeChatMessages(messages);
+  let replaced = false;
+  const next = normalized.map((message) => {
+    if (message.id !== loadingId) return message;
+    replaced = true;
+    return { id: `${loadingId}-done`, ...replacement };
+  });
+  return replaced ? next : [...next, replacement];
+}
+
+function cleanAiLine(text) {
+  return String(text || "")
+    .normalize("NFKC")
+    .replace(/[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/g, "")
+    .replace(/\u00e2\u20ac\u00a2|\ufffd/g, "")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/[`*#>~]+/g, "")
+    .replace(/^[\s\-\u2013\u2014\u2022]+/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function splitAiText(text) {
   return String(text || "")
-    .split(/\n{2,}|\n(?=[-*•]|\d+\.)/)
-    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .replace(/\r/g, "")
+    .split(/\n{2,}|\n(?=[\-*\u2022\u00e2\u20ac\u00a2]|\d+[\.)])/)
+    .map((line) => cleanAiLine(line.replace(/^\d+[\.)]\s*/, "")))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function legacySplitAiText(text) {
+  return String(text || "")
+    .split(/\n{2,}|\n(?=[-*\u2022]|\d+\.)/)
+    .map((line) => line.replace(/^[-*\u2022]\s*/, "").trim())
     .filter(Boolean)
     .slice(0, 8);
 }
