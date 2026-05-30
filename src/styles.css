@@ -902,13 +902,17 @@ img { display: block; max-width: 100%; }
   margin-bottom: 24px;
   animation: rise-in 0.36s ease both;
 }
-.kicker {
-  margin-bottom: 6px;
-  color: var(--accent);
-  font-size: 0.70rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
+.page-head-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.back-btn {
+  margin-top: 6px;
+  color: var(--ink);
+}
+.back-btn:hover {
+  transform: translateX(-3px);
 }
 .page-head h2 {
   font-size: clamp(2rem, 5vw, 4rem);

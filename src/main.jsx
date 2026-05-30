@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Activity,
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
   BadgeCheck,
   BarChart3,
@@ -888,6 +889,27 @@ function Workspace(props) {
   } = props;
   const [mobileNav, setMobileNav] = useState(false);
 
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    const checkAndNotify = () => {
+      if ("Notification" in window && Notification.permission === "granted") {
+        const todayStr = new Date().toLocaleDateString("en-CA");
+        const lastNotified = localStorage.getItem("lastNotifiedDate");
+        if (lastNotified === todayStr) return;
+        const hasTx = data.transactions.some(t => t.date && t.date.startsWith(todayStr));
+        if (!hasTx) {
+          new Notification("DompetRapi", { body: "Halo! Jangan lupa catat pengeluaran atau pemasukan Anda hari ini ya.", icon: "/icon.svg" });
+          localStorage.setItem("lastNotifiedDate", todayStr);
+        }
+      }
+    };
+    const timer = setTimeout(checkAndNotify, 4000);
+    const interval = setInterval(checkAndNotify, 3600000);
+    return () => { clearTimeout(timer); clearInterval(interval); };
+  }, [data.transactions]);
+
   const titleMap = {
     dashboard: ["Dashboard", "Angka penting bulan ini dalam satu layar."],
     wallets: ["Dompet", "Saldo manual dari semua tempat uang."],
@@ -954,10 +976,14 @@ function Workspace(props) {
 
         {page !== "dashboard" ? (
           <div className="page-head">
-            <div>
-              <p className="kicker">DompetRapi</p>
-              <h2>{title}</h2>
-              <span>{subtitle}</span>
+            <div className="page-head-title-row">
+              <button className="icon-btn back-btn" onClick={() => go("app/dashboard")} aria-label="Kembali ke Dashboard">
+                <ArrowLeft size={24} />
+              </button>
+              <div>
+                <h2>{title}</h2>
+                <span>{subtitle}</span>
+              </div>
             </div>
             <HeaderAction page={page} />
           </div>
