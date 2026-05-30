@@ -167,6 +167,9 @@ function App() {
 
       supabase.auth.onAuthStateChange((_event, session) => {
         setBoot((current) => ({ ...current, session, backend: session ? current.backend : "pending" }));
+        if (session && _event === "SIGNED_IN" && !window.location.hash.includes("app/")) {
+          go("app/dashboard");
+        }
       });
     }
 
@@ -316,7 +319,7 @@ function App() {
     }
     const { error } = await boot.supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${location.origin}${location.pathname}#/app/dashboard` }
+      options: { redirectTo: window.location.origin + window.location.pathname }
     });
     if (error) notify(error.message);
   }
@@ -330,8 +333,19 @@ function App() {
     else notify("Profil berhasil diperbarui. Cek email jika Anda mengganti alamat email.");
   }
 
-  async function updatePassword({ new_password }) {
+  async function updatePassword({ old_password, new_password }) {
     if (boot.demo || !boot.supabase) return notify("Fitur ini membutuhkan koneksi Supabase.");
+    
+    const email = boot.session?.user?.email;
+    if (!email) return notify("Email tidak ditemukan.");
+
+    const { error: signInError } = await boot.supabase.auth.signInWithPassword({
+      email,
+      password: old_password
+    });
+    
+    if (signInError) return notify("Password lama salah.");
+
     const { error } = await boot.supabase.auth.updateUser({ password: new_password });
     if (error) notify(error.message);
     else notify("Password berhasil diperbarui.");
