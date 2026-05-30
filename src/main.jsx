@@ -1186,12 +1186,6 @@ function InsightCard({ icon: Icon, label, value, copy, tone }) {
 }
 
 function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout, setUi }) {
-  const shortcuts = [
-    [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
-    [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
-    [ReceiptText, "Transaksi", "Riwayat & tambah", () => setUi(c => ({ ...c, showTransactionModal: true }))]
-  ];
-
   return (
     <div className="account-view">
       <section className="panel account-hero">
@@ -1212,17 +1206,31 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout,
         <ThemeControls theme={theme} setTheme={setTheme} />
       </section>
 
-      <section className="panel account-shortcuts">
-        <PanelHead title="Navigasi cepat" badge="Akun" />
-        <div className="account-shortcut-grid">
-          {shortcuts.map(([Icon, label, copy, action]) => (
-            <button key={label} onClick={action}>
-              <Icon size={21} />
-              <strong>{label}</strong>
-              <span>{copy}</span>
-            </button>
-          ))}
-        </div>
+      <section className="panel form-panel">
+        <PanelHead title="Pengaturan profil" badge="Data diri" />
+        <SmartForm
+          disabled={demo}
+          defaults={{ full_name: profile?.full_name || "", email: "" }}
+          fields={[
+            ["full_name", "text", "Nama lengkap", "Masukkan nama Anda"],
+            ["email", "email", "Alamat email", "email@contoh.com"]
+          ]}
+          submitLabel="Simpan Profil"
+          onSubmit={() => alert("Fitur pembaruan profil akan segera tersedia.")}
+        />
+      </section>
+
+      <section className="panel form-panel">
+        <PanelHead title="Keamanan akun" badge="Password" />
+        <SmartForm
+          disabled={demo}
+          fields={[
+            ["old_password", "password", "Password lama", "••••••••"],
+            ["new_password", "password", "Password baru", "••••••••"]
+          ]}
+          submitLabel="Ubah Password"
+          onSubmit={() => alert("Fitur pembaruan password akan segera tersedia.")}
+        />
       </section>
 
       {!demo ? (
