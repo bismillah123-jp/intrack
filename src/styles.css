@@ -2154,7 +2154,7 @@ input[type="color"] {
     border-radius: 9px;
     transition: background-color var(--t);
   }
-  .mobile-dock small { font-size: 0.58rem; }
+  .mobile-dock small { display: none; }
   .mobile-dock button.active { color: var(--accent); }
   .mobile-dock button.active > span { background: rgba(var(--accent-rgb), 0.12); }
 
