@@ -1335,7 +1335,7 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
             ["id", "hidden"],
             ["name", "text", "Nama akun", "BCA / KPR / Reksadana"],
             ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
-            ["balance", "number", "Saldo saat ini", "0"],
+            ["balance", "money", "Saldo saat ini", "0"],
             ["color", "color", "Warna", "#0f766e"]
           ]}
           submitLabel={edit ? "Simpan" : "Tambah"}
@@ -1377,7 +1377,7 @@ function TransactionModal({ ui, setUi, data, onTransaction, demo }) {
             }}
             fields={[
               ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]], (value) => setUi((current) => ({ ...current, txType: value }))],
-              ["amount", "number", "Nominal", "150000", undefined, "data-amount-input"],
+              ["amount", "money", "Nominal", "150000", undefined, "data-amount-input"],
               ["wallet_id", "select", "Dompet", data.wallets.map((item) => [item.id, item.name])],
               ["category_id", "select", "Kategori", categories.map((item) => [item.id, item.name])],
               ["transaction_date", "date", "Tanggal"],
@@ -1423,7 +1423,7 @@ function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
             ["id", "hidden"],
             ["category_id", "select", "Kategori", expenseCategories.map((item) => [item.id, item.name])],
             ["method", "select", "Metode", [["fixed", "Fixed"], ["percentage", "Percentage"]]],
-            ["amount", "number", "Limit nominal", "1500000"],
+            ["amount", "money", "Limit nominal", "1500000"],
             ["percentage", "number", "Persentase", "15"]
           ]}
           submitLabel={edit ? "Simpan" : "Tambah"}
@@ -1465,8 +1465,8 @@ function Goals({ data, ui, setUi, demo, onGoal, onDelete }) {
           fields={[
             ["id", "hidden"],
             ["name", "text", "Nama", "Dana darurat"],
-            ["target_amount", "number", "Target", "30000000"],
-            ["current_amount", "number", "Terkumpul", "5000000"],
+            ["target_amount", "money", "Target", "30000000"],
+            ["current_amount", "money", "Terkumpul", "5000000"],
             ["deadline", "date", "Deadline"]
           ]}
           submitLabel={edit ? "Simpan" : "Tambah"}
@@ -1779,6 +1779,49 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
   );
 }
 
+function MoneyInput({ name, defaultValue, disabled, placeholder, marker }) {
+  const [value, setValue] = useState(defaultValue || "");
+
+  const formatRupiah = (val) => {
+    if (!val && val !== 0) return "";
+    const numberString = val.toString().replace(/[^,\d]/g, '');
+    const split = numberString.split(',');
+    const sisa = split[0].length % 3;
+    let rupiah = split[0].substr(0, sisa);
+    const ribuan = split[0].substr(sisa).match(/\d{3}/gi);
+
+    if (ribuan) {
+      const separator = sisa ? '.' : '';
+      rupiah += separator + ribuan.join('.');
+    }
+
+    rupiah = split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
+    return rupiah ? `Rp. ${rupiah}` : '';
+  };
+
+  const handleChange = (e) => {
+    setValue(e.target.value.replace(/[^0-9]/g, ''));
+  };
+
+  const rawValue = value.toString().replace(/[^0-9]/g, '');
+
+  return (
+    <div className="money-input-wrapper">
+      <input type="hidden" name={name} value={rawValue} />
+      <input
+        type="text"
+        inputMode="numeric"
+        value={formatRupiah(value)}
+        onChange={handleChange}
+        disabled={disabled}
+        placeholder={placeholder}
+        required
+        {...(marker ? { [marker]: "" } : {})}
+      />
+    </div>
+  );
+}
+
 function SmartForm({ fields, defaults = {}, disabled, submitLabel, onSubmit, beforeSubmit }) {
   return (
     <form className="smart-form" onSubmit={(event) => {
@@ -1800,6 +1843,20 @@ function SmartForm({ fields, defaults = {}, disabled, submitLabel, onSubmit, bef
               >
                 {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
               </select>
+            </label>
+          );
+        }
+        if (type === "money") {
+          return (
+            <label key={name}>
+              {label}
+              <MoneyInput
+                name={name}
+                defaultValue={defaults?.[name] || ""}
+                placeholder={typeof options === "string" ? options : ""}
+                disabled={disabled}
+                marker={marker}
+              />
             </label>
           );
         }
