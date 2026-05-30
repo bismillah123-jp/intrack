@@ -1017,7 +1017,15 @@ function MobileBottomNav({ page }) {
 }
 
 function Dashboard({ data, budgets, metrics, theme, setUi, profile }) {
-  const [showBalance, setShowBalance] = useState(true);
+  const [showBalance, setShowBalance] = useState(() => {
+    const saved = localStorage.getItem("showBalance");
+    return saved !== null ? saved === "true" : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("showBalance", showBalance);
+  }, [showBalance]);
+
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat pagi' : hour < 15 ? 'Selamat siang' : hour < 18 ? 'Selamat sore' : 'Selamat malam';
   const userName = profile?.full_name ? profile.full_name.split(' ')[0] : 'Pengguna';
@@ -1236,7 +1244,9 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
         {data.wallets.map((wallet) => (
           <article className="wallet-tile" key={wallet.id}>
             <div className="tile-top">
-              <span className="wallet-swatch" style={{ background: wallet.color }} />
+              <span className="wallet-swatch" style={{ background: wallet.color, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.85)" }}>
+                {wallet.type === "bank" ? <PiggyBank size={18} /> : wallet.type === "credit" ? <CreditCard size={18} /> : <WalletCards size={18} />}
+              </span>
               <div>
                 <h3>{wallet.name}</h3>
                 <p>{walletType(wallet.type)}</p>

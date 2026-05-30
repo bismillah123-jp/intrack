@@ -1141,6 +1141,7 @@ img { display: block; max-width: 100%; }
   justify-content: center;
   width: 130px;
   height: 130px;
+  margin: 24px auto 16px;
   justify-self: center;
   border-radius: 999px;
   background:
@@ -2070,10 +2071,11 @@ input[type="color"] {
     margin: -28px -30px 22px;
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--bg) 88%, transparent);
-    padding: 12px 16px;
+    padding: max(16px, env(safe-area-inset-top)) 16px 12px;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
   }
+  .mobile-header .icon-btn { color: var(--ink); }
   .mobile-header-actions { display: flex; gap: 8px; }
 
   .workspace-main {
