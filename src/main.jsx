@@ -14,6 +14,8 @@ import {
   ChevronRight,
   CircleDollarSign,
   CreditCard,
+  Eye,
+  EyeOff,
   FileSearch,
   Gauge,
   ImageUp,
@@ -961,7 +963,7 @@ function Workspace(props) {
           </div>
         ) : null}
 
-        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} />}
+        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} profile={profile} />}
         {page === "wallets" && <Wallets {...props} />}
         {page === "transactions" && <Transactions {...props} />}
         {page === "budgets" && <Budgets {...props} />}
@@ -1014,7 +1016,11 @@ function MobileBottomNav({ page }) {
   );
 }
 
-function Dashboard({ data, budgets, metrics, theme, setUi }) {
+function Dashboard({ data, budgets, metrics, theme, setUi, profile }) {
+  const [showBalance, setShowBalance] = useState(true);
+  const hour = new Date().getHours();
+  const greeting = hour < 11 ? 'Selamat pagi' : hour < 15 ? 'Selamat siang' : hour < 18 ? 'Selamat sore' : 'Selamat malam';
+  const userName = profile?.full_name?.split(' ')[0] || 'Pengguna';
   const trend = trendData(data);
   const topExpense = topExpenseCategory(data);
   const totalBudgetLimit = sum(budgets, "limit");
@@ -1043,12 +1049,11 @@ function Dashboard({ data, budgets, metrics, theme, setUi }) {
       <section className="balance-hero">
         <div className="balance-hero-top">
           <div>
-            <span>Sekilas hari ini</span>
-            <h2>{money(metrics.netWorth)}</h2>
-            <p>saldo bersih dari semua dompet</p>
+            <span>{greeting}, {userName}</span>
+            <h2>{showBalance ? money(metrics.netWorth) : "Rp •••••••"}</h2>
           </div>
-          <button className="hero-lock" aria-label="Mode privasi saldo">
-            <ShieldCheck size={20} />
+          <button className="hero-lock" aria-label="Toggle saldo" onClick={() => setShowBalance(!showBalance)}>
+            {showBalance ? <Eye size={20} /> : <EyeOff size={20} />}
           </button>
         </div>
 
