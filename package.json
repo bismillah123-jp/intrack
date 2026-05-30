@@ -4,12 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "restore": "node scripts/restore-sources.cjs",
-    "predev": "node scripts/restore-sources.cjs",
     "dev": "vite --host 127.0.0.1 --port 8787",
-    "prebuild": "node scripts/restore-sources.cjs",
     "build": "vite build",
-    "prepreview": "node scripts/restore-sources.cjs",
     "preview": "vite preview --host 127.0.0.1 --port 8787"
   },
   "dependencies": {

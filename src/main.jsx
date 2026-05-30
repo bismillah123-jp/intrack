@@ -1020,7 +1020,7 @@ function Dashboard({ data, budgets, metrics, theme, setUi, profile }) {
   const [showBalance, setShowBalance] = useState(true);
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat pagi' : hour < 15 ? 'Selamat siang' : hour < 18 ? 'Selamat sore' : 'Selamat malam';
-  const userName = profile?.full_name?.split(' ')[0] || 'Pengguna';
+  const userName = profile?.full_name ? profile.full_name.split(' ')[0] : 'Pengguna';
   const trend = trendData(data);
   const topExpense = topExpenseCategory(data);
   const totalBudgetLimit = sum(budgets, "limit");
