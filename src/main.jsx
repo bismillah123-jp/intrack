@@ -87,8 +87,7 @@ const NAV = [
   ["wallets", WalletCards, "Dompet"],
   ["transactions", ReceiptText, "Transaksi"],
   ["budgets", Ruler, "Budget"],
-  ["goals", Target, "Goals"],
-  ["pro", Sparkles, "Pro"]
+  ["goals", Target, "Goals"]
 ];
 
 const ACCENTS = [
@@ -916,7 +915,6 @@ function Workspace(props) {
     transactions: ["Transaksi", "Catat pemasukan dan pengeluaran harian."],
     budgets: ["Budget", "Pantau limit kategori bulan berjalan."],
     goals: ["Goals", "Target tabungan dengan deadline yang jelas."],
-    pro: ["AI Pro", "Health score, advisor, scanner struk, dan report analyzer OpenRouter."],
     account: ["Akun", "Kelola profil, tema, dan preferensi aplikasi."]
   };
   const [title, subtitle] = titleMap[page] || titleMap.dashboard;
@@ -1004,7 +1002,7 @@ function Workspace(props) {
 
 function HeaderAction({ page }) {
   if (page === "transactions") return <button className="btn primary" onClick={openTransactionComposer}><Plus size={18} /> Transaksi</button>;
-  return <button className="btn ghost" onClick={() => go("app/pro")}><Sparkles size={18} /> AI Pro</button>;
+  return null;
 }
 
 function openTransactionComposer() {
@@ -1069,13 +1067,10 @@ function Dashboard({ data, budgets, metrics, theme, setUi, profile }) {
   const latestTransactions = data.transactions.slice(0, 5);
   const menuItems = [
     [Ruler, "Budget", "Limit kategori", () => go("app/budgets")],
-    [ScanLine, "Scanner", "Scan struk", () => openProTab(setUi, "receipt")],
     [Target, "Goals", "Target nabung", () => go("app/goals")],
     [WalletCards, "Aset", "Semua saldo", () => go("app/wallets")],
     [CreditCard, "Utang", "Kartu & PayLater", () => go("app/wallets")],
-    [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")],
-    [Bot, "AI Advisor", "Chat personal", () => openProTab(setUi, "chat")],
-    [BarChart3, "Laporan", "Analisis AI", () => openProTab(setUi, "report")]
+    [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")]
   ];
 
   return (
@@ -1198,8 +1193,7 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout 
   const shortcuts = [
     [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
     [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
-    [ReceiptText, "Transaksi", "Riwayat & tambah", openTransactionComposer],
-    [Sparkles, "AI Pro", "Chat dan scanner", () => go("app/pro")]
+    [ReceiptText, "Transaksi", "Riwayat & tambah", openTransactionComposer]
   ];
 
   return (
@@ -1832,7 +1826,6 @@ function PlanCard({ name, price, items, featured }) {
       <h3>{name}</h3>
       <strong>{price}<small>/tahun</small></strong>
       {items.map((item) => <p key={item}><Check size={16} /> {item}</p>)}
-      <button className={featured ? "btn primary" : "btn ghost"} onClick={() => go("app/pro")}>Buka AI Pro</button>
     </article>
   );
 }
