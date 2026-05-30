@@ -714,6 +714,39 @@ function ShellToast({ children, message }) {
   );
 }
 
+function ThemeControls({ theme, setTheme }) {
+  const modes = ["light", "dark"];
+  const accents = ["#0f8b8d", "#2563eb", "#7c3aed", "#e11d48", "#d97706", "#059669", "#4f46e5", "#db2777", "#0d9488", "#65a30d"];
+  
+  return (
+    <div className="theme-controls">
+      <div className="theme-modes">
+        {modes.map((mode) => (
+          <button 
+            key={mode} 
+            className={theme?.mode === mode ? "active" : ""} 
+            onClick={() => setTheme({ ...(theme || {}), mode })}
+            title={`Mode ${mode}`}
+          >
+            {mode === "light" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+        ))}
+      </div>
+      <div className="theme-accents">
+        {accents.map((color) => (
+          <button 
+            key={color}
+            className={theme?.accent === color ? "active" : ""}
+            style={{ background: color }}
+            onClick={() => setTheme({ ...(theme || {}), accent: color })}
+            aria-label={`Warna ${color}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) {
   return (
     <main className="auth-view">
