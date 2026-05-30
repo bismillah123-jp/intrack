@@ -983,7 +983,7 @@ function Workspace(props) {
                 <span>{subtitle}</span>
               </div>
             </div>
-            <HeaderAction page={page} />
+            <HeaderAction page={page} setUi={setUi} />
           </div>
         ) : null}
 
@@ -995,22 +995,18 @@ function Workspace(props) {
         {page === "pro" && <ProLab {...props} />}
         {page === "account" && <AccountPanel {...props} />}
       </main>
-      <MobileBottomNav page={page} />
+      {ui.showTransactionModal && <TransactionModal ui={ui} setUi={setUi} data={data} onTransaction={props.onTransaction} demo={demo} />}
+      <MobileBottomNav page={page} setUi={setUi} />
     </div>
   );
 }
 
-function HeaderAction({ page }) {
-  if (page === "transactions") return <button className="btn primary" onClick={openTransactionComposer}><Plus size={18} /> Transaksi</button>;
+function HeaderAction({ page, setUi }) {
+  if (page === "transactions") return <button className="btn primary" onClick={() => setUi((c) => ({ ...c, showTransactionModal: true }))}><Plus size={18} /> Transaksi</button>;
   return null;
 }
 
-function openTransactionComposer() {
-  go("app/transactions");
-  window.setTimeout(() => document.querySelector("[data-amount-input]")?.focus(), 120);
-}
-
-function MobileBottomNav({ page }) {
+function MobileBottomNav({ page, setUi }) {
   const items = [
     ["dashboard", LayoutDashboard, "Dashboard"],
     ["wallets", WalletCards, "Dompet"],
@@ -1028,7 +1024,7 @@ function MobileBottomNav({ page }) {
           <button
             key={key}
             className={`${isAdd ? "dock-add" : ""} ${active ? "active" : ""}`}
-            onClick={isAdd ? openTransactionComposer : () => go(`app/${key}`)}
+            onClick={isAdd ? () => setUi((c) => ({ ...c, showTransactionModal: true })) : () => go(`app/${key}`)}
             aria-label={isAdd ? "Tambah transaksi" : label}
           >
             <span><Icon size={isAdd ? 34 : 22} /></span>
@@ -1189,11 +1185,11 @@ function InsightCard({ icon: Icon, label, value, copy, tone }) {
   );
 }
 
-function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout }) {
+function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout, setUi }) {
   const shortcuts = [
     [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
     [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
-    [ReceiptText, "Transaksi", "Riwayat & tambah", openTransactionComposer]
+    [ReceiptText, "Transaksi", "Riwayat & tambah", () => setUi(c => ({ ...c, showTransactionModal: true }))]
   ];
 
   return (
@@ -1284,29 +1280,47 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
   );
 }
 
-function Transactions({ data, ui, setUi, demo, onTransaction, onDelete }) {
+function TransactionModal({ ui, setUi, data, onTransaction, demo }) {
   const categories = data.categories.filter((item) => item.type === ui.txType);
 
+  const close = () => setUi((c) => ({ ...c, showTransactionModal: false }));
+
   return (
-    <div className="two-col">
-      <section className="panel form-panel">
-        <PanelHead title="Tambah transaksi" badge={ui.txType === "income" ? "Pemasukan" : "Pengeluaran"} />
-        <SmartForm
-          disabled={demo}
-          defaults={{ type: ui.txType, transaction_date: isoDate(new Date()) }}
-          beforeSubmit={(values) => ({ ...values, type: ui.txType })}
-          fields={[
-            ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]], (value) => setUi((current) => ({ ...current, txType: value }))],
-            ["amount", "number", "Nominal", "150000", undefined, "data-amount-input"],
-            ["wallet_id", "select", "Dompet", data.wallets.map((item) => [item.id, item.name])],
-            ["category_id", "select", "Kategori", categories.map((item) => [item.id, item.name])],
-            ["transaction_date", "date", "Tanggal"],
-            ["note", "text", "Catatan", "Makan siang"]
-          ]}
-          submitLabel="Catat"
-          onSubmit={onTransaction}
-        />
-      </section>
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && close()}>
+      <div className="modal-box">
+        <div className="modal-header">
+          <h3>Tambah transaksi</h3>
+          <button className="icon-btn" onClick={close} aria-label="Tutup"><X size={20} /></button>
+        </div>
+        <div className="modal-body">
+          <SmartForm
+            disabled={demo}
+            defaults={{ type: ui.txType, transaction_date: isoDate(new Date()) }}
+            beforeSubmit={(values) => {
+              const res = { ...values, type: ui.txType };
+              close();
+              return res;
+            }}
+            fields={[
+              ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]], (value) => setUi((current) => ({ ...current, txType: value }))],
+              ["amount", "number", "Nominal", "150000", undefined, "data-amount-input"],
+              ["wallet_id", "select", "Dompet", data.wallets.map((item) => [item.id, item.name])],
+              ["category_id", "select", "Kategori", categories.map((item) => [item.id, item.name])],
+              ["transaction_date", "date", "Tanggal"],
+              ["note", "text", "Catatan", "Makan siang"]
+            ]}
+            submitLabel="Catat"
+            onSubmit={onTransaction}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Transactions({ data, ui, setUi, demo, onTransaction, onDelete }) {
+  return (
+    <div>
       <section className="panel">
         <PanelHead title="Riwayat" badge={`${data.transactions.length} transaksi`} />
         <div className="stack">
