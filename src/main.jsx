@@ -77,8 +77,10 @@ const WALLET_TYPES = [
   ["bank", "Bank"],
   ["ewallet", "E-wallet"],
   ["cash", "Cash"],
+  ["receivable", "Piutang"],
   ["credit_card", "Kartu kredit"],
   ["paylater", "PayLater"],
+  ["debt", "Pinjaman/Utang"],
   ["investment", "Investasi"]
 ];
 
@@ -1186,6 +1188,9 @@ function InsightCard({ icon: Icon, label, value, copy, tone }) {
 }
 
 function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout, setUi }) {
+  const [showProfile, setShowProfile] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
   return (
     <div className="account-view">
       <section className="panel account-hero">
@@ -1208,29 +1213,37 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout,
 
       <section className="panel form-panel">
         <PanelHead title="Pengaturan profil" badge="Data diri" />
-        <SmartForm
-          disabled={demo}
-          defaults={{ full_name: profile?.full_name || "", email: "" }}
-          fields={[
-            ["full_name", "text", "Nama lengkap", "Masukkan nama Anda"],
-            ["email", "email", "Alamat email", "email@contoh.com"]
-          ]}
-          submitLabel="Simpan Profil"
-          onSubmit={() => alert("Fitur pembaruan profil akan segera tersedia.")}
-        />
+        {!showProfile ? (
+          <button className="btn ghost" onClick={() => setShowProfile(true)}>Ubah Profil</button>
+        ) : (
+          <SmartForm
+            disabled={demo}
+            defaults={{ full_name: profile?.full_name || "", email: "" }}
+            fields={[
+              ["full_name", "text", "Nama lengkap", "Masukkan nama Anda"],
+              ["email", "email", "Alamat email", "email@contoh.com"]
+            ]}
+            submitLabel="Simpan Profil"
+            onSubmit={() => { alert("Fitur pembaruan profil akan segera tersedia."); setShowProfile(false); }}
+          />
+        )}
       </section>
 
       <section className="panel form-panel">
         <PanelHead title="Keamanan akun" badge="Password" />
-        <SmartForm
-          disabled={demo}
-          fields={[
-            ["old_password", "password", "Password lama", "••••••••"],
-            ["new_password", "password", "Password baru", "••••••••"]
-          ]}
-          submitLabel="Ubah Password"
-          onSubmit={() => alert("Fitur pembaruan password akan segera tersedia.")}
-        />
+        {!showPassword ? (
+          <button className="btn ghost" onClick={() => setShowPassword(true)}>Ubah Password</button>
+        ) : (
+          <SmartForm
+            disabled={demo}
+            fields={[
+              ["old_password", "password", "Password lama", "••••••••"],
+              ["new_password", "password", "Password baru", "••••••••"]
+            ]}
+            submitLabel="Ubah Password"
+            onSubmit={() => { alert("Fitur pembaruan password akan segera tersedia."); setShowPassword(false); }}
+          />
+        )}
       </section>
 
       {!demo ? (
@@ -1245,44 +1258,65 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout,
 function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
   const edit = data.wallets.find((item) => item.id === ui.walletEditId);
 
+  const assets = data.wallets.filter(w => ["bank", "ewallet", "cash", "receivable"].includes(w.type));
+  const debts = data.wallets.filter(w => ["credit_card", "paylater", "debt"].includes(w.type));
+  const investments = data.wallets.filter(w => w.type === "investment");
+  
+  const renderWalletList = (list, title) => {
+    if (list.length === 0) return null;
+    return (
+      <div className="wallet-group">
+        <PanelHead title={title} badge={`${list.length} akun`} />
+        <div className="cards-grid" style={{ marginTop: "16px" }}>
+          {list.map((wallet) => (
+            <article className="wallet-tile" key={wallet.id}>
+              <div className="tile-top">
+                <span className="wallet-swatch" style={{ background: wallet.color, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.85)" }}>
+                  {["bank", "cash", "ewallet"].includes(wallet.type) ? <PiggyBank size={18} /> : ["credit_card", "paylater", "debt"].includes(wallet.type) ? <CreditCard size={18} /> : <WalletCards size={18} />}
+                </span>
+                <div>
+                  <h3>{wallet.name}</h3>
+                  <p>{walletType(wallet.type)}</p>
+                </div>
+              </div>
+              <strong>{money(wallet.balance)}</strong>
+              <div className="tile-actions">
+                <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id }))}><Pencil size={16} /></button>
+                <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Akun dihapus.")}><Trash2 size={16} /></button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="two-col">
       <section className="panel form-panel">
-        <PanelHead title={edit ? "Edit dompet" : "Tambah dompet"} badge={`${data.wallets.length} aktif`} />
+        <PanelHead title={edit ? "Edit akun" : "Tambah akun"} badge={`${data.wallets.length} total`} />
         <SmartForm
           key={edit?.id || "new"}
           disabled={demo}
           defaults={edit}
           fields={[
             ["id", "hidden"],
-            ["name", "text", "Nama dompet", "BCA Harian"],
+            ["name", "text", "Nama akun", "BCA / KPR / Reksadana"],
             ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
-            ["balance", "number", "Saldo", "0"],
+            ["balance", "number", "Saldo saat ini", "0"],
             ["color", "color", "Warna", "#0f766e"]
           ]}
           submitLabel={edit ? "Simpan" : "Tambah"}
           onSubmit={onWallet}
         />
       </section>
-      <section className="cards-grid">
-        {data.wallets.map((wallet) => (
-          <article className="wallet-tile" key={wallet.id}>
-            <div className="tile-top">
-              <span className="wallet-swatch" style={{ background: wallet.color, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.85)" }}>
-                {wallet.type === "bank" ? <PiggyBank size={18} /> : wallet.type === "credit" ? <CreditCard size={18} /> : <WalletCards size={18} />}
-              </span>
-              <div>
-                <h3>{wallet.name}</h3>
-                <p>{walletType(wallet.type)}</p>
-              </div>
-            </div>
-            <strong>{money(wallet.balance)}</strong>
-            <div className="tile-actions">
-              <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id }))}><Pencil size={16} /></button>
-              <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Dompet dihapus.")}><Trash2 size={16} /></button>
-            </div>
-          </article>
-        ))}
+      <section className="panel" style={{ background: "transparent", border: "none", boxShadow: "none", padding: 0 }}>
+        <div className="stack" style={{ gap: "32px" }}>
+          {renderWalletList(assets, "Aset Lancar")}
+          {renderWalletList(debts, "Utang & Kewajiban")}
+          {renderWalletList(investments, "Investasi")}
+          {data.wallets.length === 0 && <Empty title="Belum ada akun" copy="Silakan tambah dompet, utang, atau investasi." />}
+        </div>
       </section>
     </div>
   );
@@ -2029,8 +2063,8 @@ function getMetrics(data) {
   const monthTransactions = data.transactions.filter((item) => monthKey(item.transaction_date) === month);
   const monthlyIncome = sum(monthTransactions.filter((item) => item.type === "income"), "amount");
   const monthlyExpense = sum(monthTransactions.filter((item) => item.type === "expense"), "amount");
-  const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater"].includes(item.type)), "balance");
-  const debt = Math.abs(sum(data.wallets.filter((item) => ["credit_card", "paylater"].includes(item.type)), "balance"));
+  const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater", "debt"].includes(item.type)), "balance");
+  const debt = Math.abs(sum(data.wallets.filter((item) => ["credit_card", "paylater", "debt"].includes(item.type)), "balance"));
   const netWorth = assets - debt;
   const savingsRate = monthlyIncome ? Math.round(((monthlyIncome - monthlyExpense) / monthlyIncome) * 100) : 0;
   const overBudget = enrichBudgets(data).filter((item) => item.percent > 100).length;
