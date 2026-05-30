@@ -297,15 +297,25 @@ function App() {
       notify("Supabase belum dikonfigurasi. Isi config.js atau .env untuk mengaktifkan auth.");
       return;
     }
+    if (!boot.demo && !values.captchaToken) {
+      notify("Harap selesaikan verifikasi keamanan Captcha terlebih dahulu.");
+      return;
+    }
     const payload = {
       email: values.email,
       password: values.password
     };
+    if (values.captchaToken) {
+      payload.options = { captchaToken: values.captchaToken };
+    }
     const { error } = ui.authMode === "login"
       ? await boot.supabase.auth.signInWithPassword(payload)
       : await boot.supabase.auth.signUp({
         ...payload,
-        options: { data: { full_name: values.full_name || values.email?.split("@")[0] || "Pengguna" } }
+        options: { 
+          ...payload.options,
+          data: { full_name: values.full_name || values.email?.split("@")[0] || "Pengguna" } 
+        }
       });
     if (error) return notify(error.message);
     notify(ui.authMode === "login" ? "Berhasil masuk." : "Akun dibuat. Cek email jika konfirmasi aktif.");
@@ -747,7 +757,49 @@ function ThemeControls({ theme, setTheme }) {
   );
 }
 
+function Turnstile({ sitekey, onVerify }) {
+  useEffect(() => {
+    if (!document.getElementById("turnstile-script")) {
+      const script = document.createElement("script");
+      script.id = "turnstile-script";
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    
+    let widgetId;
+    window.turnstileCallback = (token) => {
+      onVerify(token);
+    };
+
+    const renderWidget = () => {
+      if (window.turnstile) {
+        widgetId = window.turnstile.render("#turnstile-container", {
+          sitekey: sitekey,
+          callback: window.turnstileCallback,
+          theme: "auto"
+        });
+      } else {
+        setTimeout(renderWidget, 100);
+      }
+    };
+    
+    renderWidget();
+    
+    return () => {
+      if (window.turnstile && widgetId !== undefined) {
+        window.turnstile.remove(widgetId);
+      }
+    };
+  }, [sitekey, onVerify]);
+
+  return <div id="turnstile-container" style={{ margin: "1rem 0" }} />;
+}
+
 function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) {
+  const [captchaToken, setCaptchaToken] = useState("");
+
   return (
     <main className="auth-view">
       <section>
@@ -772,12 +824,17 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
         <h2>{mode === "login" ? "Selamat datang lagi" : "Buat akun baru"}</h2>
         <form onSubmit={(event) => {
           event.preventDefault();
-          onSubmit(Object.fromEntries(new FormData(event.currentTarget)));
+          const values = Object.fromEntries(new FormData(event.currentTarget));
+          values.captchaToken = captchaToken;
+          onSubmit(values);
         }}>
           {mode === "register" ? <label>Nama lengkap<input name="full_name" type="text" disabled={demo} placeholder="Nama kamu" required /></label> : null}
           <label>Email<input name="email" type="email" disabled={demo} required /></label>
           <label>Password<input name="password" type="password" disabled={demo} minLength={6} required /></label>
-          <button className="btn primary" disabled={demo}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
+          
+          {!demo && <Turnstile sitekey="0x4AAAAAADaD7d8YIW881-0I" onVerify={setCaptchaToken} />}
+          
+          <button className="btn primary" disabled={demo || (!demo && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
         </form>
         <button className="btn ghost" disabled={demo} onClick={onGoogle} style={{ gap: "10px" }}>
           <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
