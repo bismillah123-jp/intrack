@@ -1,12 +1,1 @@
-.goal-tile {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-glass);
-  backdrop-filter: blur(16px);
-  transition:
-    transform 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-  position: relative;
-  overflow: hidden;
-}
+/* goal-tile styles now live in styles.css */

@@ -930,6 +930,9 @@ function Workspace(props) {
 
       <main className="workspace-main">
         <header className="mobile-header">
+          <button className="icon-btn" onClick={() => setMobileNav(true)} aria-label="Buka menu">
+            <Menu size={19} />
+          </button>
           <Brand />
           <div className="mobile-header-actions">
             <button className="icon-btn" onClick={() => go("app/account")} aria-label="Buka akun">
@@ -1210,6 +1213,7 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
       <section className="panel form-panel">
         <PanelHead title={edit ? "Edit dompet" : "Tambah dompet"} badge={`${data.wallets.length} aktif`} />
         <SmartForm
+          key={edit?.id || "new"}
           disabled={demo}
           defaults={edit}
           fields={[
@@ -1289,6 +1293,7 @@ function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
       <section className="panel form-panel">
         <PanelHead title={edit ? "Edit budget" : "Buat budget"} badge={periodLabel()} />
         <SmartForm
+          key={edit?.id || "new"}
           disabled={demo}
           defaults={edit}
           fields={[
@@ -1331,6 +1336,7 @@ function Goals({ data, ui, setUi, demo, onGoal, onDelete }) {
       <section className="panel form-panel">
         <PanelHead title={edit ? "Edit goal" : "Tambah goal"} badge={`${data.goals.length} aktif`} />
         <SmartForm
+          key={edit?.id || "new"}
           disabled={demo}
           defaults={edit}
           fields={[
