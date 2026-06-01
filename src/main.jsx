@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -11,14 +11,12 @@ import {
   CalendarDays,
   Camera,
   Check,
-  ChevronRight,
   CircleDollarSign,
   CreditCard,
   FileSearch,
   Gauge,
   ImageUp,
   LayoutDashboard,
-  LineChart,
   Loader2,
   LogIn,
   LogOut,
@@ -36,7 +34,6 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
-  Sparkles,
   Sun,
   Target,
   Trash2,
@@ -165,8 +162,6 @@ const DEFAULT_THEME = {
   accent: "#0f766e"
 };
 
-const LOCAL_TURNSTILE_SITE_KEY = "0x4AAAAAADaD7d8YIW881-0I";
-
 const initialUi = {
   route: getRoute(),
   navOpen: false,
@@ -195,12 +190,6 @@ const initialUi = {
   financeAlerts: []
 };
 
-const PRO_PLAN = {
-  name: "Pro",
-  price: "Rp149.000",
-  suffix: "/tahun"
-};
-
 function App() {
   const [ui, setUi] = useState(initialUi);
   const [theme, setTheme] = useState(loadSavedTheme);
@@ -215,6 +204,7 @@ function App() {
 
   useEffect(() => {
     let alive = true;
+    let authSubscription = null;
 
     async function bootApp() {
       const config = await loadConfig();
@@ -230,28 +220,33 @@ function App() {
         return;
       }
 
-      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
       if (!alive) return;
-      setBoot({ ready: true, demo: false, supabase, session: sessionData.session, backend: "pending" });
+      setBoot({ ready: true, demo: false, supabase, session: sessionError ? null : sessionData.session, backend: "pending" });
       const authRedirectError = getAuthRedirectError();
       if (authRedirectError) {
         notify(`Login Google gagal: ${authRedirectError}`, "danger");
         go("login");
-      } else if (sessionData.session && (getRoute() === "login" || hasAuthRedirectParams())) {
+      } else if (!sessionError && sessionData.session && (getRoute() === "login" || hasAuthRedirectParams())) {
         go("app/dashboard");
       }
 
-      supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
         setBoot((current) => ({ ...current, session, backend: session ? current.backend : "pending" }));
         if (session && _event === "SIGNED_IN" && !window.location.hash.includes("app/")) {
           go("app/dashboard");
         }
       });
+      authSubscription = authListener?.subscription || null;
     }
 
     bootApp();
     return () => {
       alive = false;
+      authSubscription?.unsubscribe();
     };
   }, []);
 
@@ -280,7 +275,7 @@ function App() {
   const metrics = useMemo(() => getMetrics(data), [data]);
   const budgets = useMemo(() => enrichBudgets(data), [data]);
   const isAppRoute = ui.route.startsWith("app/");
-  const currentPage = isAppRoute ? ui.route.split("/")[1] || "dashboard" : "landing";
+  const currentPage = isAppRoute ? ui.route.split("/")[1] || "dashboard" : "dashboard";
   const plan = "pro";
   const isPro = true;
 
@@ -398,18 +393,10 @@ function App() {
       notify("Supabase belum dikonfigurasi. Isi config.js atau .env untuk mengaktifkan auth.");
       return false;
     }
-    const captchaSiteKey = getTurnstileSiteKey();
-    if (!boot.demo && captchaSiteKey && !values.captchaToken) {
-      notify("Harap selesaikan verifikasi Captcha terlebih dahulu.");
-      return false;
-    }
     const payload = {
       email: values.email,
       password: values.password
     };
-    if (values.captchaToken) {
-      payload.options = { captchaToken: values.captchaToken };
-    }
     const { error } = ui.authMode === "login"
       ? await boot.supabase.auth.signInWithPassword(payload)
       : await boot.supabase.auth.signUp({
@@ -786,7 +773,7 @@ function App() {
 
   if (!boot.ready) return <Splash />;
 
-  if (ui.route === "login") {
+  if (!isAppRoute) {
     return (
       <ShellToast message={ui.toast} toastType={ui.toastType}>
         <AuthView
@@ -846,11 +833,6 @@ function App() {
     );
   }
 
-  return (
-    <ShellToast message={ui.toast} toastType={ui.toastType}>
-      <Landing theme={theme} setTheme={setTheme} demo={boot.demo} />
-    </ShellToast>
-  );
 }
 
 function Splash() {
@@ -871,139 +853,6 @@ function ShellToast({ children, message, toastType }) {
   );
 }
 
-function Landing({ theme, setTheme, demo }) {
-  const featureItems = [
-    [WalletCards, "Semua dompet", "Bank, e-wallet, cash, kartu kredit, PayLater, dan investasi."],
-    [Ruler, "Budget presisi", "Fixed atau percentage budgeting dengan peringatan saat mendekati limit."],
-    [Bot, "AI Pro", "Chat advisor, scanner struk, dan analisis laporan dengan AI DeepSeek V4."],
-    [LineChart, "Laporan", "Tren pemasukan, pengeluaran, dan net worth."],
-    [Target, "Goals", "Target nominal dengan deadline dan progress real-time."],
-    [ShieldCheck, "Manual-first", "Tidak meminta password bank. Semua dicatat manual."]
-  ];
-
-  return (
-    <div className="marketing">
-      <header className="topbar">
-        <Brand />
-        <nav className="topnav">
-          <a href="#fitur">Fitur</a>
-          <a href="#harga">Harga</a>
-          <a href="#faq">FAQ</a>
-          <ThemeControls theme={theme} setTheme={setTheme} compact />
-          <button className="btn ghost" onClick={() => go("login")}>Masuk</button>
-        </nav>
-      </header>
-
-      <section className="hero-modern">
-        <div className="hero-copy">
-          <span className="pill">Personal finance</span>
-          <h1>DompetRapi</h1>
-          <p>
-            Workspace keuangan pribadi dengan AI Pro — chat advisor, scan struk, analisis laporan, dan health score.
-          </p>
-          <div className="hero-actions">
-            <button className="btn primary" onClick={() => demo ? go("app/dashboard") : go("login")}>
-              {demo ? "Buka dashboard" : "Masuk ke dashboard"} <ChevronRight size={18} />
-            </button>
-            <button className="btn ghost" onClick={() => document.getElementById("fitur")?.scrollIntoView({ behavior: "smooth" })}>
-              Lihat fitur
-            </button>
-          </div>
-          <ThemeControls theme={theme} setTheme={setTheme} />
-        </div>
-        <ProductScene />
-      </section>
-
-      <section className="trust-strip">
-        <div>
-          <strong>Manual-first</strong>
-          <span>Tidak ada sync rekening otomatis</span>
-        </div>
-        <div>
-          <strong>AI DeepSeek V4</strong>
-          <span>Chat, scan struk, dan analisis</span>
-        </div>
-        <div>
-          <strong>Supabase-ready</strong>
-          <span>Auth dan database siap pakai</span>
-        </div>
-      </section>
-
-      <section id="fitur" className="section">
-        <SectionIntro label="Fitur" title="Kelola uang tanpa tampilan yang berisik." copy="Setiap halaman dibuat untuk dipindai cepat." />
-        <div className="feature-grid">
-          {featureItems.map(([Icon, title, copy]) => (
-            <article className="feature-tile" key={title}>
-              <Icon size={22} />
-              <h3>{title}</h3>
-              <p>{copy}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="harga" className="section split-section">
-        <SectionIntro label="Plan" title="Satu plan saja: Pro." copy="Semua fitur aktif setelah setup Supabase." />
-        <div className="pricing-modern">
-          <PlanCard featured name={PRO_PLAN.name} price={PRO_PLAN.price} items={["Dompet dan transaksi tanpa batas", "Budget, goals, dan health score", "AI Chat dengan DeepSeek V4", "Scan struk dengan AI", "Analisis laporan AI"]} />
-        </div>
-      </section>
-
-      <section id="faq" className="section faq-modern">
-        <SectionIntro label="FAQ" title="Pertanyaan umum." copy="" />
-        {[
-          ["Apakah sync otomatis ke bank?", "Tidak. Input manual, tanpa kredensial bank."],
-          ["AI pakai model apa?", "AI Pro memakai DeepSeek V4 via FreeTheAI."],
-          ["Cara sambungkan ke Supabase?", "Jalankan schema.sql, copy config.example.js ke config.js, lalu isi URL dan anon key."]
-        ].map(([q, a]) => (
-          <details key={q}>
-            <summary>{q}</summary>
-            <p>{a}</p>
-          </details>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function ProductScene() {
-  return (
-    <div className="product-scene" aria-label="Preview dashboard DompetRapi">
-      <div className="scene-window">
-        <div className="scene-head">
-          <span></span>
-          <span></span>
-          <span></span>
-          <b>Dashboard</b>
-        </div>
-        <div className="scene-body">
-          <aside>
-            <i></i><i></i><i></i><i></i>
-          </aside>
-          <main>
-            <div className="scene-card big">
-              <small>Saldo bersih</small>
-              <strong>Rp 18,4 jt</strong>
-              <div className="scene-bars">
-                {[42, 58, 46, 72, 64, 82].map((height, index) => <span key={index} style={{ height: `${height}%` }} />)}
-              </div>
-            </div>
-            <div className="scene-card">
-              <small>Budget</small>
-              <strong>68%</strong>
-              <em></em>
-            </div>
-            <div className="scene-card">
-              <small>Health</small>
-              <strong>86/100</strong>
-              <em></em>
-            </div>
-          </main>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ThemeControls({ theme, setTheme, compact = false }) {
   const toggleMode = () => setTheme((current) => ({
@@ -1155,7 +1004,7 @@ function Workspace(props) {
           <div className="demo-bar">
             <BadgeCheck size={18} />
             <span>Demo mode. Data tidak disimpan.</span>
-            <button className="btn quiet" onClick={() => go("")}>Landing</button>
+            <button className="btn quiet" onClick={() => go("login")}>Login</button>
           </div>
         ) : null}
 
@@ -1835,60 +1684,8 @@ function ChatBubble({ message }) {
   );
 }
 
-function Turnstile({ sitekey, onVerify, resetKey }) {
-  const containerId = useMemo(() => `cf-turnstile-${Math.random().toString(36).slice(2)}`, []);
-  const widgetIdRef = useRef(null);
-
-  useEffect(() => {
-    if (!document.getElementById("turnstile-script")) {
-      const script = document.createElement("script");
-      script.id = "turnstile-script";
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-    }
-    let cancelled = false;
-    let retryTimer;
-    const renderWidget = () => {
-      const container = document.getElementById(containerId);
-      if (cancelled || !container) return;
-      if (window.turnstile && widgetIdRef.current === null) {
-        widgetIdRef.current = window.turnstile.render(`#${containerId}`, {
-          sitekey,
-          callback: (token) => onVerify(token),
-          "expired-callback": () => onVerify(""),
-          "error-callback": () => onVerify(""),
-          "timeout-callback": () => onVerify(""),
-          theme: "auto"
-        });
-      } else {
-        retryTimer = setTimeout(renderWidget, 150);
-      }
-    };
-    renderWidget();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(retryTimer);
-      if (window.turnstile && widgetIdRef.current !== null) {
-        window.turnstile.remove(widgetIdRef.current);
-      }
-      widgetIdRef.current = null;
-    };
-  }, [sitekey, onVerify, containerId, resetKey]);
-  return <div id={containerId} className="turnstile-box" />;
-}
-
 function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) {
-  const [captchaToken, setCaptchaToken] = useState("");
-  const [captchaResetKey, setCaptchaResetKey] = useState(0);
   const [googleBusy, setGoogleBusy] = useState(false);
-  const captchaSiteKey = getTurnstileSiteKey();
-
-  useEffect(() => {
-    setCaptchaToken("");
-    setCaptchaResetKey((value) => value + 1);
-  }, [mode, captchaSiteKey]);
 
   async function handleGoogleClick() {
     setGoogleBusy(true);
@@ -1907,7 +1704,7 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
             : "Login dengan email atau Google. Data dipisah per user."}
         </p>
         <div className="auth-actions">
-          <button className="btn primary" onClick={() => demo ? go("app/dashboard") : go("")}>{demo ? "Buka dashboard" : "Lihat landing"}</button>
+          {demo ? <button className="btn primary" onClick={() => go("app/dashboard")}>Buka dashboard</button> : null}
           <ThemeControls theme={theme} setTheme={setTheme} />
         </div>
       </section>
@@ -1937,23 +1734,12 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
         <form onSubmit={async (event) => {
           event.preventDefault();
           const values = Object.fromEntries(new FormData(event.currentTarget));
-          values.captchaToken = captchaToken;
-          const ok = await onSubmit(values);
-          if (!ok && captchaSiteKey) {
-            setCaptchaToken("");
-            setCaptchaResetKey((value) => value + 1);
-          }
+          await onSubmit(values);
         }}>
           {mode === "register" ? <label>Nama lengkap<input name="full_name" type="text" disabled={demo} placeholder="Nama kamu" required /></label> : null}
           <label>Email<input name="email" type="email" disabled={demo} required /></label>
           <label>Password<input name="password" type="password" disabled={demo} minLength={6} required /></label>
-          {!demo && captchaSiteKey ? (
-            <div className="captcha-panel">
-              <span>Verifikasi keamanan</span>
-              <Turnstile sitekey={captchaSiteKey} onVerify={setCaptchaToken} resetKey={`${mode}-${captchaResetKey}`} />
-            </div>
-          ) : null}
-          <button className="btn primary" disabled={demo || (!demo && captchaSiteKey && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
+          <button className="btn primary" disabled={demo}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
         </form>
       </section>
     </main>
@@ -2149,31 +1935,10 @@ function Empty({ title, copy }) {
   );
 }
 
-function SectionIntro({ label, title, copy }) {
-  return (
-    <div className="section-intro">
-      <span className="pill">{label}</span>
-      <h2>{title}</h2>
-      <p>{copy}</p>
-    </div>
-  );
-}
-
-function PlanCard({ name, price, items, featured }) {
-  return (
-    <article className={featured ? "plan-card featured" : "plan-card"}>
-      <span className={featured ? "pill gold" : "pill"}>Pro only</span>
-      <h3>{name}</h3>
-      <strong>{price}<small>/tahun</small></strong>
-      {items.map((item) => <p key={item}><Check size={16} /> {item}</p>)}
-      <button className={featured ? "btn primary" : "btn ghost"} onClick={() => go("app/pro-chat")}>Buka AI Pro</button>
-    </article>
-  );
-}
 
 function Brand() {
   return (
-    <button className="brand" onClick={() => go("")} aria-label="DompetRapi">
+    <button className="brand" onClick={() => go(getRoute().startsWith("app/") ? "app/dashboard" : "login")} aria-label="DompetRapi">
       <span>DR</span>
       <b>DompetRapi</b>
     </button>
@@ -2184,8 +1949,7 @@ async function loadConfig() {
   if (new URLSearchParams(location.search).get("demo") === "1") return null;
   const envConfig = {
     SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
-    SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
-    TURNSTILE_SITE_KEY: import.meta.env.VITE_TURNSTILE_SITE_KEY
+    SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY
   };
   if (envConfig.SUPABASE_URL && envConfig.SUPABASE_ANON_KEY && !isPlaceholder(envConfig)) {
     return setRuntimeConfig(envConfig);
@@ -2206,22 +1970,10 @@ function setRuntimeConfig(config) {
   return config;
 }
 
-function getTurnstileSiteKey() {
-  const key =
-    window.__DOMPETRAPI_CONFIG__?.TURNSTILE_SITE_KEY ||
-    import.meta.env.VITE_TURNSTILE_SITE_KEY ||
-    window.DOMPETRAPI_CONFIG?.TURNSTILE_SITE_KEY;
-  if (key) return key;
-  return isLocalHost() ? LOCAL_TURNSTILE_SITE_KEY : "";
-}
-
-function isLocalHost() {
-  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
-}
-
 function getAuthRedirectUrl() {
   const url = new URL(window.location.href);
-  return `${url.origin}${url.pathname}`;
+  const pathname = url.pathname.replace(/\/index\.html$/i, "/");
+  return `${url.origin}${pathname}`;
 }
 
 function hasAuthRedirectParams() {
@@ -2475,11 +2227,13 @@ const chartOptions = {
 };
 
 function getRoute() {
-  return location.hash.replace(/^#\/?/, "");
+  const route = location.hash.replace(/^#\/?/, "");
+  if (!route || hasAuthRedirectParams()) return "login";
+  return route;
 }
 
 function go(route) {
-  location.hash = route ? `#/${route}` : "#/";
+  location.hash = `#/${route || "login"}`;
 }
 
 function loadSavedTheme() {

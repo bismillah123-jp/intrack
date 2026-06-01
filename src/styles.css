@@ -2492,26 +2492,6 @@ input[type="color"] {
   margin-bottom: 20px;
 }
 
-.captcha-panel {
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-soft);
-  padding: 12px;
-}
-
-.captcha-panel > span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.turnstile-box {
-  min-height: 65px;
-  overflow: hidden;
-}
-
 /* Modern product refresh */
 :root {
   --bg: #f6f8fb;

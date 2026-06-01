@@ -3,10 +3,8 @@
 
 export const SUPABASE_URL = "https://your-project.supabase.co";
 export const SUPABASE_ANON_KEY = "your-anon-key";
-export const TURNSTILE_SITE_KEY = "";
 
 window.DOMPETRAPI_CONFIG = {
   SUPABASE_URL,
-  SUPABASE_ANON_KEY,
-  TURNSTILE_SITE_KEY
+  SUPABASE_ANON_KEY
 };
