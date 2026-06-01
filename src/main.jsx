@@ -217,7 +217,7 @@ function App() {
     async function bootApp() {
       const config = await loadConfig();
       const hasConfig = Boolean(config?.SUPABASE_URL && config?.SUPABASE_ANON_KEY);
-      const supabase = hasConfig ? createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY) : null;
+      const supabase = hasConfig ? getSupabaseClient(config) : null;
 
       if (!supabase) {
         if (!alive) return;
@@ -389,7 +389,8 @@ function App() {
       notify("Supabase belum dikonfigurasi. Isi config.js atau .env untuk mengaktifkan auth.");
       return;
     }
-    if (!boot.demo && !values.captchaToken) {
+    const captchaSiteKey = getTurnstileSiteKey();
+    if (!boot.demo && captchaSiteKey && !values.captchaToken) {
       notify("Harap selesaikan verifikasi Captcha terlebih dahulu.");
       return;
     }
@@ -422,7 +423,7 @@ function App() {
     const redirectTo = window.location.origin + window.location.pathname + "#/app/dashboard";
     const { error } = await boot.supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo, queryParams: { access_type: "offline", prompt: "consent" } }
+          options: { redirectTo, queryParams: { access_type: "offline", prompt: "consent" } }
     });
     if (error) notify(error.message, "danger");
   }
@@ -644,12 +645,13 @@ function App() {
 
   function runAdvisor(question) {
     const userName = profile?.full_name?.split(" ")[0] || "bestie";
+    const fullName = profile?.full_name || userName;
     const userQuestion = String(question || "").trim() || "Analisis kondisi keuangan bulan ini dan beri 3 saran paling penting.";
     const loadingId = `loading-${Date.now()}`;
     runAI({
       slot: "advisor",
       prompt: userQuestion,
-      system: `Kamu adalah ShanIA, AI cewek gaul sahabat ${userName} (nama lengkap dia: Aliyul Manan Nur Ihsan, tinggal di Indonesia, timezone Asia/Jakarta) yang juga jago banget soal keuangan. Lo lahir 2006, Gen Z tulen, asik banget kayak sahabat yang udah kenal dari kecil. Selalu panggil user dengan "best" atau "bestie". Jawab dengan gaya bahasa gaul anak Jaksel yang fun, ekspresif, pakai emoji (tapi jangan lebay). Kasih saran keuangan yang ceplas-ceplos tapi peduli. Jangan kaku kayak robot. Jangan pakai markdown tebal, tanda ***, atau karakter Asia yang aneh.`,
+      system: `Kamu adalah ShanIA, AI sahabat keuangan pribadi untuk ${fullName} di Indonesia, timezone Asia/Jakarta. Jawab dalam bahasa Indonesia yang santai, praktis, dan empatik. Panggil user dengan "bestie" sewajarnya. Beri saran keuangan yang jelas dan aman. Jangan mengklaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
       context: buildFinanceContext(data, budgets, metrics),
       onStart: () => {
         setUi((current) => ({
@@ -685,11 +687,12 @@ function App() {
 
   function runReceipt(text, imageUrl) {
     const userName = profile?.full_name?.split(" ")[0] || "bestie";
+    const fullName = profile?.full_name || userName;
     runAI({
       slot: "receipt",
       prompt: text || "Scan struk ini bestie! Kasih tau gue ada apa aja.",
       imageUrl,
-      system: `Kamu ShanIA, AI cewek gaul yang bantuin ${userName} (nama lengkap dia: Aliyul Manan Nur Ihsan, timezone Asia/Jakarta) scan struk belanja! Analisis struk ini dan kasih ringkasan dengan gaya gaul Gen Z yang fun dan ekspresif pakai emoji. Setelah kasih ringkasan asik, WAJIB tambahkan blok JSON di paling akhir response dalam format ini (jangan skip!):\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal nggak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
+      system: `Kamu ShanIA, AI yang membantu ${fullName} scan struk belanja di Indonesia, timezone Asia/Jakarta. Analisis struk dan berikan ringkasan singkat. Setelah ringkasan, WAJIB tambahkan blok JSON di paling akhir response dalam format ini:\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal tidak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
       context: buildFinanceContext(data, budgets, metrics),
       onSuccess: (lines, payload) => {
         const cleanLines = lines.filter(l => !l.match(/^[\{\["]/));
@@ -708,11 +711,12 @@ function App() {
 
   function runReport(extraPrompt) {
     const userName = profile?.full_name?.split(" ")[0] || "bestie";
+    const fullName = profile?.full_name || userName;
     const focus = String(extraPrompt || "").trim();
     runAI({
       slot: "report",
       prompt: `Buatin laporan analisis keuangan ${userName} bulan ini dong! Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
-      system: `Kamu ShanIA, AI cewek gaul yang jago analisis keuangan sahabatnya, ${userName} (nama lengkap dia: Aliyul Manan Nur Ihsan, timezone Asia/Jakarta). Buat laporan dalam bahasa Indonesia gaul tapi informatif, kalimat pendek dan actionable. Selalu panggil user dengan "bestie". Pakai emoji yang relevan tapi jangan lebay. Jangan pakai markdown tebal, tanda ***, atau karakter Asia aneh.`,
+      system: `Kamu ShanIA, AI yang membantu analisis keuangan ${fullName} di Indonesia, timezone Asia/Jakarta. Buat laporan dalam bahasa Indonesia yang santai, informatif, kalimat pendek, dan actionable. Panggil user dengan "bestie" sewajarnya. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
       context: buildFinanceContext(data, budgets, metrics)
     });
   }
@@ -745,7 +749,7 @@ function App() {
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
-      logAi(slot, { lines, model: "agr/deepseek-v4-pro" }, prompt);
+      logAi(slot, { lines, model: "fee/kimi-k2.6" }, prompt);
     } catch (error) {
       const reason = (error.message || "AI tidak bisa dihubungi").replace(/[.]+$/, "");
       const fallback = `AI belum aktif: ${reason}.`;
@@ -805,6 +809,12 @@ function App() {
           onBudget={saveBudget}
           onGoal={saveGoal}
           onDelete={deleteRow}
+          onUpdateProfile={updateProfile}
+          onUpdatePassword={updatePassword}
+          onCheckAlerts={checkFinanceAlerts}
+          onAdvisor={runAdvisor}
+          onReceipt={runReceipt}
+          onReport={runReport}
           onRunAI={runAI}
           onRefresh={() => refreshData("Data disinkronkan.")}
         />
@@ -817,15 +827,7 @@ function App() {
 
   return (
     <ShellToast message={ui.toast} toastType={ui.toastType}>
-      <AuthView
-        demo={boot.demo}
-        theme={theme}
-        setTheme={setTheme}
-        mode={ui.authMode}
-        setMode={(authMode) => setUi((current) => ({ ...current, authMode }))}
-        onSubmit={signIn}
-        onGoogle={signInGoogle}
-      />
+      <Landing theme={theme} setTheme={setTheme} demo={boot.demo} />
     </ShellToast>
   );
 }
@@ -848,7 +850,7 @@ function ShellToast({ children, message, toastType }) {
   );
 }
 
-function Landing({ theme, setTheme }) {
+function Landing({ theme, setTheme, demo }) {
   const featureItems = [
     [WalletCards, "Semua dompet", "Bank, e-wallet, cash, kartu kredit, PayLater, dan investasi."],
     [Ruler, "Budget presisi", "Fixed atau percentage budgeting dengan peringatan saat mendekati limit."],
@@ -879,8 +881,8 @@ function Landing({ theme, setTheme }) {
             Workspace keuangan pribadi dengan AI Pro — chat advisor, scan struk, analisis laporan, dan health score.
           </p>
           <div className="hero-actions">
-            <button className="btn primary" onClick={() => go("app/dashboard")}>
-              Buka dashboard <ChevronRight size={18} />
+            <button className="btn primary" onClick={() => demo ? go("app/dashboard") : go("login")}>
+              {demo ? "Buka dashboard" : "Masuk ke dashboard"} <ChevronRight size={18} />
             </button>
             <button className="btn ghost" onClick={() => document.getElementById("fitur")?.scrollIntoView({ behavior: "smooth" })}>
               Lihat fitur
@@ -1593,7 +1595,7 @@ function Goals({ data, ui, setUi, demo, onGoal, onDelete }) {
   );
 }
 
-function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onReport, page }) {
+function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onReport, onTransaction, page }) {
   const activeTab = page === "pro-scan" ? "receipt" : page === "pro-report" ? "report" : page === "pro-health" ? "health" : "chat";
   const [receiptDraft, setReceiptDraft] = useState({ text: "", imageUrl: "", imageData: "", imageName: "" });
   const [reportPrompt, setReportPrompt] = useState("");
@@ -1725,7 +1727,7 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
                 ]}
                 submitLabel="Simpan Transaksi ✨"
                 onSubmit={(values) => {
-                  props.onTransaction(values);
+                  onTransaction(values);
                   setUi(c => ({ ...c, scanResult: null, receipt: [] }));
                 }}
               />
@@ -1847,6 +1849,7 @@ function Turnstile({ sitekey, onVerify }) {
 
 function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) {
   const [captchaToken, setCaptchaToken] = useState("");
+  const captchaSiteKey = getTurnstileSiteKey();
 
   return (
     <main className="auth-view">
@@ -1859,7 +1862,7 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
             : "Login dengan email atau Google. Data dipisah per user."}
         </p>
         <div className="auth-actions">
-          <button className="btn primary" onClick={() => go("app/dashboard")}>Buka dashboard</button>
+          <button className="btn primary" onClick={() => demo ? go("app/dashboard") : go("")}>{demo ? "Buka dashboard" : "Lihat landing"}</button>
           <ThemeControls theme={theme} setTheme={setTheme} />
         </div>
       </section>
@@ -1895,8 +1898,8 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
           {mode === "register" ? <label>Nama lengkap<input name="full_name" type="text" disabled={demo} placeholder="Nama kamu" required /></label> : null}
           <label>Email<input name="email" type="email" disabled={demo} required /></label>
           <label>Password<input name="password" type="password" disabled={demo} minLength={6} required /></label>
-          {!demo && <Turnstile sitekey="0x4AAAAAADaD7d8YIW881-0I" onVerify={setCaptchaToken} />}
-          <button className="btn primary" disabled={demo || (!demo && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
+          {!demo && captchaSiteKey ? <Turnstile sitekey={captchaSiteKey} onVerify={setCaptchaToken} /> : null}
+          <button className="btn primary" disabled={demo || (!demo && captchaSiteKey && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
         </form>
       </section>
     </main>
@@ -2109,7 +2112,7 @@ function PlanCard({ name, price, items, featured }) {
       <h3>{name}</h3>
       <strong>{price}<small>/tahun</small></strong>
       {items.map((item) => <p key={item}><Check size={16} /> {item}</p>)}
-      <button className={featured ? "btn primary" : "btn ghost"} onClick={() => go("app/pro")}>Buka AI Pro</button>
+      <button className={featured ? "btn primary" : "btn ghost"} onClick={() => go("app/pro-chat")}>Buka AI Pro</button>
     </article>
   );
 }
@@ -2141,6 +2144,21 @@ async function loadConfig() {
     return null;
   }
   return null;
+}
+
+function getTurnstileSiteKey() {
+  return import.meta.env.VITE_TURNSTILE_SITE_KEY || window.DOMPETRAPI_CONFIG?.TURNSTILE_SITE_KEY || "";
+}
+
+function getSupabaseClient(config) {
+  const key = `${config.SUPABASE_URL}:${config.SUPABASE_ANON_KEY}`;
+  if (!window.__DOMPETRAPI_SUPABASE__ || window.__DOMPETRAPI_SUPABASE__.key !== key) {
+    window.__DOMPETRAPI_SUPABASE__ = {
+      key,
+      client: createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY)
+    };
+  }
+  return window.__DOMPETRAPI_SUPABASE__.client;
 }
 
 function isPlaceholder(config) {

@@ -32,20 +32,23 @@ Alternatif build-time: copy `.env.example` ke `.env` dan isi:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key
+FREETHEAI_API_KEY=your-freetheai-api-key
+VITE_TURNSTILE_SITE_KEY=
 ```
 
-## OpenRouter AI
+## FreeTheAI
 
-Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js`, model `moonshotai/kimi-k2.6:free`, dan endpoint OpenRouter `/api/v1/chat/completions`.
+Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js`, model `fee/kimi-k2.6`, dan endpoint FreeTheAI `/v1/chat/completions`.
 
 Untuk production di Vercel, tambahkan environment variable server:
 
 ```env
-OPENROUTER_API_KEY=sk-or-v1-...
+FREETHEAI_API_KEY=your-freetheai-api-key
 ```
 
-Jangan menaruh OpenRouter key di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser.
+Jangan menaruh FreeTheAI key di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser.
+
+Cloudflare Turnstile bersifat opsional. Jika Supabase Auth kamu mengaktifkan captcha, isi `VITE_TURNSTILE_SITE_KEY`; jika tidak, kosongkan saja.
 
 ## Routes
 
@@ -61,6 +64,6 @@ Jangan menaruh OpenRouter key di `VITE_` env karena nilai `VITE_` ikut masuk ke 
 ## Catatan MVP
 
 - Tidak ada sync rekening bank otomatis.
-- AI advisor, receipt scanner, dan report analyzer memakai OpenRouter lewat `/api/openrouter`.
+- AI advisor, receipt scanner, dan report analyzer memakai FreeTheAI lewat `/api/openrouter`.
 - Produk sekarang Pro-only; tabel `subscriptions` tetap dipakai untuk status akun Pro.
 - Tema gelap/terang dan warna aksen custom disimpan di browser lewat `localStorage`.
