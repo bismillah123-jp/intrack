@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Activity,
   ArrowDownLeft,
-  ArrowLeft,
   ArrowUpRight,
   BadgeCheck,
   BarChart3,
@@ -15,8 +14,6 @@ import {
   ChevronRight,
   CircleDollarSign,
   CreditCard,
-  Eye,
-  EyeOff,
   FileSearch,
   Gauge,
   ImageUp,
@@ -77,10 +74,8 @@ const WALLET_TYPES = [
   ["bank", "Bank"],
   ["ewallet", "E-wallet"],
   ["cash", "Cash"],
-  ["receivable", "Piutang"],
   ["credit_card", "Kartu kredit"],
   ["paylater", "PayLater"],
-  ["debt", "Pinjaman/Utang"],
   ["investment", "Investasi"]
 ];
 
@@ -89,7 +84,8 @@ const NAV = [
   ["wallets", WalletCards, "Dompet"],
   ["transactions", ReceiptText, "Transaksi"],
   ["budgets", Ruler, "Budget"],
-  ["goals", Target, "Goals"]
+  ["goals", Target, "Goals"],
+  ["pro", Sparkles, "Pro"]
 ];
 
 const ACCENTS = [
@@ -298,7 +294,7 @@ function App() {
       return;
     }
     if (!boot.demo && !values.captchaToken) {
-      notify("Harap selesaikan verifikasi keamanan Captcha terlebih dahulu.");
+      notify("Harap selesaikan verifikasi Captcha terlebih dahulu.");
       return;
     }
     const payload = {
@@ -312,9 +308,9 @@ function App() {
       ? await boot.supabase.auth.signInWithPassword(payload)
       : await boot.supabase.auth.signUp({
         ...payload,
-        options: { 
+        options: {
           ...payload.options,
-          data: { full_name: values.full_name || values.email?.split("@")[0] || "Pengguna" } 
+          data: { full_name: values.full_name || values.email?.split("@")[0] || "Pengguna" }
         }
       });
     if (error) return notify(error.message);
@@ -340,22 +336,15 @@ function App() {
     if (email && email !== profile?.email) updates.email = email;
     const { error } = await boot.supabase.auth.updateUser(updates);
     if (error) notify(error.message);
-    else notify("Profil berhasil diperbarui. Cek email jika Anda mengganti alamat email.");
+    else notify("Profil berhasil diperbarui.");
   }
 
   async function updatePassword({ old_password, new_password }) {
     if (boot.demo || !boot.supabase) return notify("Fitur ini membutuhkan koneksi Supabase.");
-    
     const email = boot.session?.user?.email;
     if (!email) return notify("Email tidak ditemukan.");
-
-    const { error: signInError } = await boot.supabase.auth.signInWithPassword({
-      email,
-      password: old_password
-    });
-    
+    const { error: signInError } = await boot.supabase.auth.signInWithPassword({ email, password: old_password });
     if (signInError) return notify("Password lama salah.");
-
     const { error } = await boot.supabase.auth.updateUser({ password: new_password });
     if (error) notify(error.message);
     else notify("Password berhasil diperbarui.");
@@ -653,6 +642,22 @@ function App() {
 
   if (!boot.ready) return <Splash />;
 
+  if (ui.route === "login") {
+    return (
+      <ShellToast message={ui.toast}>
+        <AuthView
+          demo={boot.demo}
+          theme={theme}
+          setTheme={setTheme}
+          mode={ui.authMode}
+          setMode={(authMode) => setUi((current) => ({ ...current, authMode }))}
+          onSubmit={signIn}
+          onGoogle={signInGoogle}
+        />
+      </ShellToast>
+    );
+  }
+
   if (isAppRoute) {
     if (!boot.demo && !boot.session) {
       go("login");
@@ -682,10 +687,10 @@ function App() {
           onGoal={saveGoal}
           onDelete={deleteRow}
           onAdvisor={runAdvisor}
-          onUpdateProfile={updateProfile}
-          onUpdatePassword={updatePassword}
           onReceipt={runReceipt}
           onReport={runReport}
+          onUpdateProfile={updateProfile}
+          onUpdatePassword={updatePassword}
         />
       </ShellToast>
     );
@@ -724,35 +729,969 @@ function ShellToast({ children, message }) {
   );
 }
 
-function ThemeControls({ theme, setTheme }) {
-  const modes = ["light", "dark"];
-  const accents = ["#0f8b8d", "#2563eb", "#7c3aed", "#e11d48", "#d97706", "#059669", "#4f46e5", "#db2777", "#0d9488", "#65a30d"];
-  
+function Landing({ theme, setTheme }) {
+  const featureItems = [
+    [WalletCards, "Semua dompet", "Bank, e-wallet, cash, kartu kredit, PayLater, dan investasi dalam satu workspace."],
+    [Ruler, "Budget presisi", "Fixed atau percentage budgeting dengan warning saat kategori mulai panas."],
+    [Bot, "AI Pro aktif", "Advisor, scanner struk, dan report analyzer memakai OpenRouter Kimi K2.6."],
+    [LineChart, "Laporan jernih", "Tren pemasukan, pengeluaran, net worth, dan kategori terbesar langsung terbaca."],
+    [Target, "Goals aktif", "Target nominal, deadline, dan progress real-time untuk rencana nabung."],
+    [ShieldCheck, "Manual-first", "Tidak meminta password bank. Saldo dan transaksi dicatat manual oleh pengguna."]
+  ];
+
   return (
-    <div className="theme-controls">
-      <div className="theme-modes">
-        {modes.map((mode) => (
-          <button 
-            key={mode} 
-            className={theme?.mode === mode ? "active" : ""} 
-            onClick={() => setTheme({ ...(theme || {}), mode })}
-            title={`Mode ${mode}`}
-          >
-            {mode === "light" ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
+    <div className="marketing">
+      <header className="topbar">
+        <Brand />
+        <nav className="topnav">
+          <a href="#fitur">Fitur</a>
+          <a href="#harga">Harga</a>
+          <a href="#faq">FAQ</a>
+          <ThemeControls theme={theme} setTheme={setTheme} compact />
+          <button className="btn ghost" onClick={() => go("login")}>Masuk</button>
+        </nav>
+      </header>
+
+      <section className="hero-modern">
+        <div className="hero-copy">
+          <span className="pill">Personal finance SaaS</span>
+          <h1>DompetRapi</h1>
+          <p>
+            Workspace keuangan pribadi yang bersih, cepat, dan siap dipakai untuk mencatat dompet,
+            transaksi, budget, goals, laporan, dan AI Pro yang terhubung ke OpenRouter.
+          </p>
+          <div className="hero-actions">
+            <button className="btn primary" onClick={() => go("app/dashboard")}>
+              Buka dashboard <ChevronRight size={18} />
+            </button>
+            <button className="btn ghost" onClick={() => document.getElementById("fitur")?.scrollIntoView({ behavior: "smooth" })}>
+              Lihat fitur
+            </button>
+          </div>
+          <ThemeControls theme={theme} setTheme={setTheme} />
+        </div>
+        <ProductScene />
+      </section>
+
+      <section className="trust-strip">
+        <div>
+          <strong>Manual-first</strong>
+          <span>Tidak ada sync rekening otomatis</span>
+        </div>
+        <div>
+          <strong>Supabase-ready</strong>
+          <span>Auth, RLS, dan database schema tersedia</span>
+        </div>
+        <div>
+          <strong>React + Vite</strong>
+          <span>Framework modern tanpa CDN app code</span>
+        </div>
+      </section>
+
+      <section id="fitur" className="section">
+        <SectionIntro label="Fitur" title="Kelola uang tanpa tampilan yang berisik." copy="Setiap halaman dibuat untuk dipindai cepat, bukan untuk membuat pengguna tersesat di banyak dekorasi." />
+        <div className="feature-grid">
+          {featureItems.map(([Icon, title, copy]) => (
+            <article className="feature-tile" key={title}>
+              <Icon size={22} />
+              <h3>{title}</h3>
+              <p>{copy}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="harga" className="section split-section">
+        <SectionIntro label="Plan" title="Satu plan saja: Pro." copy="Semua fitur langsung aktif: dashboard, budget, goals, OpenRouter AI, dan scanner struk." />
+        <div className="pricing-modern">
+          <PlanCard featured name={PRO_PLAN.name} price={PRO_PLAN.price} items={["Dompet dan transaksi tanpa batas", "Budget, goals, dan health score", "AI advisor OpenRouter", "Scan struk teks atau image URL", "Report analyzer AI"]} />
+        </div>
+      </section>
+
+      <section id="faq" className="section faq-modern">
+        <SectionIntro label="FAQ" title="Hal penting sebelum dipakai." copy="Versi ini fokus pada MVP SaaS yang aman dan mudah dikembangkan." />
+        {[
+          ["Apakah sync otomatis ke bank?", "Tidak. Versi awal memakai input manual dan tidak meminta kredensial bank."],
+          ["Apakah AI sudah memakai API sungguhan?", "Ya. AI Pro memanggil OpenRouter lewat endpoint serverless /api/openrouter."],
+          ["Bisa disambungkan ke Supabase?", "Bisa. Jalankan schema.sql, copy config.example.js ke config.js, lalu isi Supabase URL dan anon key."]
+        ].map(([q, a]) => (
+          <details key={q}>
+            <summary>{q}</summary>
+            <p>{a}</p>
+          </details>
         ))}
+      </section>
+    </div>
+  );
+}
+
+function ProductScene() {
+  return (
+    <div className="product-scene" aria-label="Preview dashboard DompetRapi">
+      <div className="scene-window">
+        <div className="scene-head">
+          <span></span>
+          <span></span>
+          <span></span>
+          <b>Dashboard</b>
+        </div>
+        <div className="scene-body">
+          <aside>
+            <i></i><i></i><i></i><i></i>
+          </aside>
+          <main>
+            <div className="scene-card big">
+              <small>Saldo bersih</small>
+              <strong>Rp 18,4 jt</strong>
+              <div className="scene-bars">
+                {[42, 58, 46, 72, 64, 82].map((height, index) => <span key={index} style={{ height: `${height}%` }} />)}
+              </div>
+            </div>
+            <div className="scene-card">
+              <small>Budget</small>
+              <strong>68%</strong>
+              <em></em>
+            </div>
+            <div className="scene-card">
+              <small>Health</small>
+              <strong>86/100</strong>
+              <em></em>
+            </div>
+          </main>
+        </div>
       </div>
-      <div className="theme-accents">
-        {accents.map((color) => (
-          <button 
+    </div>
+  );
+}
+
+function ThemeControls({ theme, setTheme, compact = false }) {
+  const toggleMode = () => setTheme((current) => ({
+    ...current,
+    mode: current.mode === "dark" ? "light" : "dark"
+  }));
+
+  return (
+    <div className={compact ? "theme-controls compact" : "theme-controls"} aria-label="Pengaturan tema">
+      <button className="icon-btn" onClick={toggleMode} aria-label="Ganti tema gelap terang">
+        {theme.mode === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+      </button>
+      <div className="accent-dots" aria-label="Warna tema">
+        {ACCENTS.map(([color, label]) => (
+          <button
             key={color}
-            className={theme?.accent === color ? "active" : ""}
-            style={{ background: color }}
-            onClick={() => setTheme({ ...(theme || {}), accent: color })}
-            aria-label={`Warna ${color}`}
+            className={theme.accent === color ? "active" : ""}
+            style={{ "--dot": color }}
+            onClick={() => setTheme((current) => ({ ...current, accent: color }))}
+            aria-label={`Tema ${label}`}
           />
         ))}
+        <label className="custom-color" title="Pilih warna custom">
+          <Palette size={15} />
+          <input
+            type="color"
+            value={theme.accent}
+            onChange={(event) => setTheme((current) => ({ ...current, accent: event.target.value }))}
+          />
+        </label>
       </div>
+    </div>
+  );
+}
+
+function ThemeModeButton({ theme, setTheme }) {
+  return (
+    <button
+      className="icon-btn"
+      onClick={() => setTheme((current) => ({ ...current, mode: current.mode === "dark" ? "light" : "dark" }))}
+      aria-label="Ganti tema"
+    >
+      {theme.mode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+    </button>
+  );
+}
+
+function Workspace(props) {
+  const {
+    page,
+    ui,
+    setUi,
+    data,
+    budgets,
+    metrics,
+    plan,
+    isPro,
+    demo,
+    profile,
+    theme,
+    setTheme,
+    backend,
+    onLogout,
+    onUpdateProfile,
+    onUpdatePassword
+  } = props;
+  const [mobileNav, setMobileNav] = useState(false);
+
+  const titleMap = {
+    dashboard: ["Dashboard", "Angka penting bulan ini dalam satu layar."],
+    wallets: ["Dompet", "Saldo manual dari semua tempat uang."],
+    transactions: ["Transaksi", "Catat pemasukan dan pengeluaran harian."],
+    budgets: ["Budget", "Pantau limit kategori bulan berjalan."],
+    goals: ["Goals", "Target tabungan dengan deadline yang jelas."],
+    pro: ["AI Pro", "Health score, advisor, scanner struk, dan report analyzer OpenRouter."],
+    account: ["Akun", "Kelola profil, tema, dan preferensi aplikasi."]
+  };
+  const [title, subtitle] = titleMap[page] || titleMap.dashboard;
+
+  return (
+    <div className="workspace">
+      {mobileNav ? <button className="sidebar-scrim" aria-label="Tutup menu" onClick={() => setMobileNav(false)} /> : null}
+      <aside className={`sidebar ${mobileNav ? "open" : ""}`} aria-hidden={!mobileNav ? undefined : false}>
+        <div className="sidebar-head">
+          <Brand />
+          <button className="icon-btn mobile-only" onClick={() => setMobileNav(false)} aria-label="Tutup menu">
+            <X size={18} />
+          </button>
+        </div>
+        <nav className="side-nav">
+          {NAV.map(([key, Icon, label]) => (
+            <button key={key} className={key === page ? "active" : ""} onClick={() => go(`app/${key}`)}>
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="account-card">
+          <span className={`pill ${plan === "pro" ? "gold" : ""}`}>{demo ? "Demo Pro" : plan}</span>
+          <span className="mini-badge">{demo ? "Demo data" : backend === "fintrack" ? "Supabase fintrack" : "Supabase app"}</span>
+          <strong>{profile?.full_name || "Pengguna DompetRapi"}</strong>
+          <ThemeControls theme={theme} setTheme={setTheme} />
+          {!demo ? (
+            <button className="btn quiet" onClick={onLogout}>
+              <LogOut size={16} /> Keluar
+            </button>
+          ) : null}
+        </div>
+      </aside>
+
+      <main className="workspace-main">
+        <header className="mobile-header">
+          <Brand />
+          <div className="mobile-header-actions">
+            <button className="icon-btn" onClick={() => go("app/account")} aria-label="Buka akun">
+              <UserRound size={19} />
+            </button>
+            <ThemeModeButton theme={theme} setTheme={setTheme} />
+          </div>
+        </header>
+
+        {demo ? (
+          <div className="demo-bar">
+            <BadgeCheck size={18} />
+            <span>Demo mode read-only. Tambahkan config.js untuk menyimpan data ke Supabase.</span>
+            <button className="btn quiet" onClick={() => go("")}>Landing</button>
+          </div>
+        ) : null}
+
+        {page !== "dashboard" ? (
+          <div className="page-head">
+            <div>
+              <p className="kicker">DompetRapi</p>
+              <h2>{title}</h2>
+              <span>{subtitle}</span>
+            </div>
+            <HeaderAction page={page} />
+          </div>
+        ) : null}
+
+        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} />}
+        {page === "wallets" && <Wallets {...props} />}
+        {page === "transactions" && <Transactions {...props} />}
+        {page === "budgets" && <Budgets {...props} />}
+        {page === "goals" && <Goals {...props} />}
+        {page === "pro" && <ProLab {...props} />}
+        {page === "account" && <AccountPanel {...props} />}
+      </main>
+      <MobileBottomNav page={page} />
+    </div>
+  );
+}
+
+function HeaderAction({ page }) {
+  if (page === "transactions") return <button className="btn primary" onClick={openTransactionComposer}><Plus size={18} /> Transaksi</button>;
+  return <button className="btn ghost" onClick={() => go("app/pro")}><Sparkles size={18} /> AI Pro</button>;
+}
+
+function openTransactionComposer() {
+  go("app/transactions");
+  window.setTimeout(() => document.querySelector("[data-amount-input]")?.focus(), 120);
+}
+
+function MobileBottomNav({ page }) {
+  const items = [
+    ["dashboard", LayoutDashboard, "Dashboard"],
+    ["wallets", WalletCards, "Dompet"],
+    ["add", Plus, "Tambah"],
+    ["transactions", ReceiptText, "Transaksi"],
+    ["account", UserRound, "Akun"]
+  ];
+
+  return (
+    <nav className="mobile-dock" aria-label="Navigasi utama mobile">
+      {items.map(([key, Icon, label]) => {
+        const isAdd = key === "add";
+        const active = key === page || (key === "wallets" && page === "wallets");
+        return (
+          <button
+            key={key}
+            className={`${isAdd ? "dock-add" : ""} ${active ? "active" : ""}`}
+            onClick={isAdd ? openTransactionComposer : () => go(`app/${key}`)}
+            aria-label={isAdd ? "Tambah transaksi" : label}
+          >
+            <span><Icon size={isAdd ? 34 : 22} /></span>
+            <small>{label}</small>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Dashboard({ data, budgets, metrics, theme, setUi }) {
+  const trend = trendData(data);
+  const topExpense = topExpenseCategory(data);
+  const totalBudgetLimit = sum(budgets, "limit");
+  const totalBudgetSpent = sum(budgets, "spent");
+  const budgetBase = totalBudgetLimit || metrics.monthlyIncome || Math.max(metrics.monthlyExpense, 1);
+  const expenseProgress = Math.round((metrics.monthlyExpense / budgetBase) * 100);
+  const budgetRealization = totalBudgetLimit ? Math.round((totalBudgetSpent / totalBudgetLimit) * 100) : 0;
+  const remainingBudget = Math.max(0, budgetBase - metrics.monthlyExpense);
+  const runway = metrics.monthlyExpense ? metrics.assets / metrics.monthlyExpense : 0;
+  const billBudget = budgets.find((budget) => /tagihan|listrik|internet|cicilan|sewa/i.test(budget.categoryName));
+  const upcomingBill = billBudget ? Math.max(0, number(billBudget.limit) - number(billBudget.spent)) : 0;
+  const latestTransactions = data.transactions.slice(0, 5);
+  const menuItems = [
+    [Ruler, "Budget", "Limit kategori", () => go("app/budgets")],
+    [ScanLine, "Scanner", "Scan struk", () => openProTab(setUi, "receipt")],
+    [Target, "Goals", "Target nabung", () => go("app/goals")],
+    [WalletCards, "Aset", "Semua saldo", () => go("app/wallets")],
+    [CreditCard, "Utang", "Kartu & PayLater", () => go("app/wallets")],
+    [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")],
+    [Bot, "AI Advisor", "Chat personal", () => openProTab(setUi, "chat")],
+    [BarChart3, "Laporan", "Analisis AI", () => openProTab(setUi, "report")]
+  ];
+
+  return (
+    <div className="dashboard-home">
+      <section className="balance-hero">
+        <div className="balance-hero-top">
+          <div>
+            <span>Sekilas hari ini</span>
+            <h2>{money(metrics.netWorth)}</h2>
+            <p>saldo bersih dari semua dompet</p>
+          </div>
+          <button className="hero-lock" aria-label="Mode privasi saldo">
+            <ShieldCheck size={20} />
+          </button>
+        </div>
+
+        <div className="balance-row">
+          <div>
+            <small>Pemasukan</small>
+            <strong className="income-text">{shortMoney(metrics.monthlyIncome)}</strong>
+          </div>
+          <div>
+            <small>Pengeluaran</small>
+            <strong className="expense-text">{shortMoney(metrics.monthlyExpense)}</strong>
+          </div>
+        </div>
+
+        <div className="hero-progress">
+          <div>
+            <span>Budget tersisa</span>
+            <b>{money(remainingBudget)}</b>
+          </div>
+          <Progress value={expenseProgress} danger={expenseProgress > 100} />
+        </div>
+      </section>
+
+      <section className="panel main-menu-panel">
+        <div className="menu-title">
+          <h3>Menu Utama</h3>
+          <button className="btn quiet" onClick={() => go("app/account")}><Palette size={16} /> Ubah</button>
+        </div>
+        <div className="main-menu-grid">
+          {menuItems.map(([Icon, label, caption, action]) => (
+            <button className="menu-action" key={label} onClick={action}>
+              <span><Icon size={25} /></span>
+              <strong>{label}</strong>
+              <small>{caption}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="dashboard-insights">
+        <article className="panel dash-card progress-card">
+          <PanelHead title="Progres pengeluaran" badge={`${expenseProgress}%`} />
+          <div className="progress-ring" style={{ "--value": `${Math.min(expenseProgress, 100)}%` }}>
+            <strong>{Math.min(expenseProgress, 999)}%</strong>
+            <span>{periodLabel()}</span>
+          </div>
+          <Progress value={expenseProgress} danger={expenseProgress > 100} />
+          <p>{money(metrics.monthlyExpense)} terpakai dari {money(budgetBase)}.</p>
+        </article>
+
+        <article className="panel dash-card activity-card">
+          <PanelHead title="Aktivitas bulanan" badge="6 bulan" />
+          <div className="mini-chart">
+            <Bar
+              data={{
+                labels: trend.map((item) => item.label),
+                datasets: [
+                  { label: "Pemasukan", data: trend.map((item) => item.income), backgroundColor: theme.accent, borderRadius: 10 },
+                  { label: "Pengeluaran", data: trend.map((item) => item.expense), backgroundColor: "#fb7185", borderRadius: 10 }
+                ]
+              }}
+              options={chartOptions}
+            />
+          </div>
+        </article>
+
+        <article className="panel dash-card latest-card">
+          <PanelHead title="Transaksi terbaru" badge={`${data.transactions.length} transaksi`} />
+          <div className="stack">
+            {latestTransactions.length ? latestTransactions.map((tx) => <TransactionItem key={tx.id} tx={tx} data={data} />) : <Empty title="Belum ada transaksi" copy="Tambahkan pemasukan atau pengeluaran pertama." />}
+          </div>
+        </article>
+
+        <InsightCard icon={ArrowDownLeft} label="Total pemasukan" value={money(metrics.monthlyIncome)} tone="income" />
+        <InsightCard icon={ArrowUpRight} label="Total pengeluaran" value={money(metrics.monthlyExpense)} tone="expense" />
+        <InsightCard icon={PiggyBank} label="Runway dana darurat" value={`${runway.toFixed(1)} bulan`} copy={`Aset likuid ${money(metrics.assets)}`} />
+        <InsightCard icon={CalendarDays} label="Tagihan mendatang" value={money(upcomingBill)} copy={billBudget?.categoryName || "Belum ada budget tagihan"} />
+        <InsightCard icon={Activity} label="Pengeluaran terbesar" value={topExpense?.name || "Belum ada"} copy={topExpense ? money(topExpense.total) : "Catat transaksi dulu"} tone="expense" />
+
+        <article className="panel dash-card budget-realization">
+          <PanelHead title="Realisasi anggaran" badge={`${budgetRealization}%`} />
+          <div className="budget-realization-list">
+            {budgets.length ? budgets.slice(0, 4).map((budget) => <BudgetLine key={budget.id} budget={budget} />) : <Empty title="Belum ada budget" copy="Buat limit kategori bulan ini." />}
+          </div>
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function openProTab(setUi, tab) {
+  setUi((current) => ({ ...current, proTab: tab }));
+  go("app/pro");
+}
+
+function InsightCard({ icon: Icon, label, value, copy, tone }) {
+  return (
+    <article className={`panel dash-card insight-card ${tone || ""}`}>
+      <span className="insight-icon"><Icon size={19} /></span>
+      <small>{label}</small>
+      <strong>{value}</strong>
+      {copy ? <p>{copy}</p> : null}
+    </article>
+  );
+}
+
+function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout, onUpdateProfile, onUpdatePassword }) {
+  const [showProfileForm, setShowProfileForm] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const shortcuts = [
+    [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
+    [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
+    [ReceiptText, "Transaksi", "Riwayat & tambah", openTransactionComposer],
+    [Sparkles, "AI Pro", "Chat dan scanner", () => go("app/pro")]
+  ];
+
+  return (
+    <div className="account-view">
+      <section className="panel account-hero">
+        <div className="account-avatar">
+          {(profile?.full_name || "DR").slice(0, 2).toUpperCase()}
+        </div>
+        <div>
+          <span>Kelola akun</span>
+          <h3>{profile?.full_name || "Pengguna DompetRapi"}</h3>
+          <p>{demo ? "Demo mode aktif. Data hanya contoh dan tidak disimpan." : backend === "fintrack" ? "Supabase fintrack terhubung." : "Supabase app terhubung."}</p>
+        </div>
+        <span className={`pill ${plan === "pro" ? "gold" : ""}`}>{demo ? "Demo Pro" : plan}</span>
+      </section>
+
+      <section className="panel settings-panel">
+        <PanelHead title="Pengaturan tampilan" badge="Tema" />
+        <p>Pilih mode gelap/terang dan warna aksen yang paling nyaman buat kamu.</p>
+        <ThemeControls theme={theme} setTheme={setTheme} />
+      </section>
+
+      {!demo ? (
+        <section className="panel settings-panel">
+          <PanelHead title="Ubah data diri" badge="Profil" />
+          <button className="btn ghost" onClick={() => setShowProfileForm((v) => !v)}>
+            <Pencil size={16} /> {showProfileForm ? "Tutup form" : "Edit profil"}
+          </button>
+          {showProfileForm && (
+            <form className="smart-form" style={{ marginTop: "12px" }} onSubmit={(e) => {
+              e.preventDefault();
+              const values = Object.fromEntries(new FormData(e.currentTarget));
+              onUpdateProfile(values);
+              setShowProfileForm(false);
+            }}>
+              <label>Nama lengkap<input name="full_name" type="text" defaultValue={profile?.full_name || ""} required /></label>
+              <button className="btn primary"><Check size={16} /> Simpan profil</button>
+            </form>
+          )}
+        </section>
+      ) : null}
+
+      {!demo ? (
+        <section className="panel settings-panel">
+          <PanelHead title="Ganti password" badge="Keamanan" />
+          <button className="btn ghost" onClick={() => setShowPasswordForm((v) => !v)}>
+            <ShieldCheck size={16} /> {showPasswordForm ? "Tutup form" : "Ganti password"}
+          </button>
+          {showPasswordForm && (
+            <form className="smart-form" style={{ marginTop: "12px" }} onSubmit={(e) => {
+              e.preventDefault();
+              const values = Object.fromEntries(new FormData(e.currentTarget));
+              if (values.new_password !== values.confirm_password) {
+                alert("Password baru tidak cocok!");
+                return;
+              }
+              onUpdatePassword(values);
+              setShowPasswordForm(false);
+            }}>
+              <label>Password lama<input name="old_password" type="password" required /></label>
+              <label>Password baru<input name="new_password" type="password" minLength={6} required /></label>
+              <label>Konfirmasi password baru<input name="confirm_password" type="password" minLength={6} required /></label>
+              <button className="btn primary"><Check size={16} /> Simpan password</button>
+            </form>
+          )}
+        </section>
+      ) : null}
+
+      <section className="panel account-shortcuts">
+        <PanelHead title="Navigasi cepat" badge="Akun" />
+        <div className="account-shortcut-grid">
+          {shortcuts.map(([Icon, label, copy, action]) => (
+            <button key={label} onClick={action}>
+              <Icon size={21} />
+              <strong>{label}</strong>
+              <span>{copy}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {!demo ? (
+        <button className="btn primary account-logout" onClick={onLogout}>
+          <LogOut size={18} /> Keluar dari akun
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
+  const edit = data.wallets.find((item) => item.id === ui.walletEditId);
+
+  return (
+    <div className="two-col">
+      <section className="panel form-panel">
+        <PanelHead title={edit ? "Edit dompet" : "Tambah dompet"} badge={`${data.wallets.length} aktif`} />
+        <SmartForm
+          disabled={demo}
+          defaults={edit}
+          fields={[
+            ["id", "hidden"],
+            ["name", "text", "Nama dompet", "BCA Harian"],
+            ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
+            ["balance", "money", "Saldo", "0"],
+            ["color", "color", "Warna", "#0f766e"]
+          ]}
+          submitLabel={edit ? "Simpan" : "Tambah"}
+          onSubmit={onWallet}
+        />
+      </section>
+      <section className="cards-grid">
+        {data.wallets.map((wallet) => (
+          <article className="wallet-tile" key={wallet.id}>
+            <div className="tile-top">
+              <span className="wallet-swatch" style={{ background: wallet.color }} />
+              <div>
+                <h3>{wallet.name}</h3>
+                <p>{walletType(wallet.type)}</p>
+              </div>
+            </div>
+            <strong>{money(wallet.balance)}</strong>
+            <div className="tile-actions">
+              <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id }))}><Pencil size={16} /></button>
+              <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Dompet dihapus.")}><Trash2 size={16} /></button>
+            </div>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function Transactions({ data, ui, setUi, demo, onTransaction, onDelete }) {
+  const categories = data.categories.filter((item) => item.type === ui.txType);
+
+  return (
+    <div className="two-col">
+      <section className="panel form-panel">
+        <PanelHead title="Tambah transaksi" badge={ui.txType === "income" ? "Pemasukan" : "Pengeluaran"} />
+        <SmartForm
+          disabled={demo}
+          defaults={{ type: ui.txType, transaction_date: isoDate(new Date()) }}
+          beforeSubmit={(values) => ({ ...values, type: ui.txType })}
+          fields={[
+            ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]], (value) => setUi((current) => ({ ...current, txType: value }))],
+            ["amount", "money", "Nominal", "150000", undefined, "data-amount-input"],
+            ["wallet_id", "select", "Dompet", data.wallets.map((item) => [item.id, item.name])],
+            ["category_id", "select", "Kategori", categories.map((item) => [item.id, item.name])],
+            ["transaction_date", "date", "Tanggal"],
+            ["note", "text", "Catatan", "Makan siang"]
+          ]}
+          submitLabel="Catat"
+          onSubmit={onTransaction}
+        />
+      </section>
+      <section className="panel">
+        <PanelHead title="Riwayat" badge={`${data.transactions.length} transaksi`} />
+        <div className="stack">
+          {data.transactions.length ? data.transactions.map((tx) => (
+            <TransactionItem key={tx.id} tx={tx} data={data} onDelete={demo ? null : () => onDelete("transactions", tx.id, "Transaksi dihapus.")} />
+          )) : <Empty title="Belum ada transaksi" copy="Riwayat akan muncul di sini." />}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
+  const edit = data.budgets.find((item) => item.id === ui.budgetEditId);
+  const expenseCategories = data.categories.filter((item) => item.type === "expense");
+
+  return (
+    <div className="two-col">
+      <section className="panel form-panel">
+        <PanelHead title={edit ? "Edit budget" : "Buat budget"} badge={periodLabel()} />
+        <SmartForm
+          disabled={demo}
+          defaults={edit}
+          fields={[
+            ["id", "hidden"],
+            ["category_id", "select", "Kategori", expenseCategories.map((item) => [item.id, item.name])],
+            ["method", "select", "Metode", [["fixed", "Fixed"], ["percentage", "Percentage"]]],
+            ["amount", "money", "Limit nominal", "1500000"],
+            ["percentage", "number", "Persentase", "15"]
+          ]}
+          submitLabel={edit ? "Simpan" : "Tambah"}
+          onSubmit={onBudget}
+        />
+      </section>
+      <section className="cards-grid">
+        {budgets.map((budget) => (
+          <article className="budget-tile" key={budget.id}>
+            <div className="tile-top">
+              <div>
+                <span className={`mini-badge ${budget.percent > 100 ? "danger" : ""}`}>{budget.percent > 100 ? "Over" : budget.method}</span>
+                <h3>{budget.categoryName}</h3>
+              </div>
+              <div className="tile-actions">
+                <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, budgetEditId: budget.id }))}><Pencil size={16} /></button>
+                <button className="icon-btn" disabled={demo} onClick={() => onDelete("budgets", budget.id, "Budget dihapus.")}><Trash2 size={16} /></button>
+              </div>
+            </div>
+            <BudgetLine budget={budget} />
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function Goals({ data, ui, setUi, demo, onGoal, onDelete }) {
+  const edit = data.goals.find((item) => item.id === ui.goalEditId);
+
+  return (
+    <div className="two-col">
+      <section className="panel form-panel">
+        <PanelHead title={edit ? "Edit goal" : "Tambah goal"} badge={`${data.goals.length} aktif`} />
+        <SmartForm
+          disabled={demo}
+          defaults={edit}
+          fields={[
+            ["id", "hidden"],
+            ["name", "text", "Nama", "Dana darurat"],
+            ["target_amount", "money", "Target", "30000000"],
+            ["current_amount", "money", "Terkumpul", "5000000"],
+            ["deadline", "date", "Deadline"]
+          ]}
+          submitLabel={edit ? "Simpan" : "Tambah"}
+          onSubmit={onGoal}
+        />
+      </section>
+      <section className="cards-grid">
+        {data.goals.map((goal) => {
+          const percent = goalProgress(goal);
+          return (
+            <article className="goal-tile" key={goal.id}>
+              <div className="tile-top">
+                <div>
+                  <span className="mini-badge">{formatDate(goal.deadline)}</span>
+                  <h3>{goal.name}</h3>
+                </div>
+                <div className="tile-actions">
+                  <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, goalEditId: goal.id }))}><Pencil size={16} /></button>
+                  <button className="icon-btn" disabled={demo} onClick={() => onDelete("goals", goal.id, "Goal dihapus.")}><Trash2 size={16} /></button>
+                </div>
+              </div>
+              <Progress value={percent} />
+              <p>{money(goal.current_amount)} dari {money(goal.target_amount)}</p>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onReport }) {
+  const activeTab = ui.proTab || "chat";
+  const [receiptDraft, setReceiptDraft] = useState({ text: "", imageUrl: "", imageData: "", imageName: "" });
+  const [reportPrompt, setReportPrompt] = useState("");
+  const chatMessages = normalizeChatMessages(ui.advisor);
+  const tabs = [
+    ["chat", Bot, "Chat"],
+    ["receipt", ScanLine, "Scan Struk"],
+    ["report", FileSearch, "Analisis"],
+    ["health", Gauge, "Health"]
+  ];
+
+  function switchTab(tab) {
+    setUi((current) => ({ ...current, proTab: tab }));
+  }
+
+  function handleReceiptImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setReceiptDraft((current) => ({
+        ...current,
+        imageData: String(reader.result || ""),
+        imageName: file.name,
+        imageUrl: ""
+      }));
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  }
+
+  function clearReceiptImage() {
+    setReceiptDraft((current) => ({ ...current, imageData: "", imageName: "" }));
+  }
+
+  return (
+    <div className="pro-lab">
+      <section className="pro-command">
+        <div>
+          <span className="mini-badge gold">AI Pro aktif</span>
+          <h3>AI keuangan yang terasa seperti ngobrol.</h3>
+          <p>Chat, scan struk, dan analisis laporan sekarang dipisah biar lebih fokus dan enak dipakai di HP.</p>
+        </div>
+        <div className="pro-command-stats" aria-label="Ringkasan AI Pro">
+          <span><Gauge size={16} /> {metrics.healthScore}/100</span>
+          <span><CircleDollarSign size={16} /> {metrics.savingsRate}% saving</span>
+          <span><Activity size={16} /> {data.goals.length} goals</span>
+        </div>
+      </section>
+
+      <nav className="pro-tabs" aria-label="Navigasi AI Pro">
+        {tabs.map(([key, Icon, label]) => (
+          <button key={key} className={activeTab === key ? "active" : ""} onClick={() => switchTab(key)}>
+            <Icon size={18} />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="pro-grid">
+        <aside className="pro-side panel">
+          <PanelHead title="Financial health" badge={isPro ? "Pro" : "Locked"} />
+          <div className="score-orbit compact" style={{ "--score": `${metrics.healthScore}%` }}>
+            <strong>{metrics.healthScore}</strong>
+            <span>score</span>
+          </div>
+          <div className="health-list modern">
+            <span><CircleDollarSign size={16} /> Savings rate {metrics.savingsRate}%</span>
+            <span><CreditCard size={16} /> Debt {money(metrics.debt)}</span>
+            <span><Activity size={16} /> {data.goals.length} goals aktif</span>
+          </div>
+          <div className="ai-mini-stack">
+            <button className="btn quiet" onClick={() => switchTab("chat")}><Bot size={16} /> Buka chat</button>
+            <button className="btn quiet" onClick={() => switchTab("receipt")}><ScanLine size={16} /> Scan struk</button>
+          </div>
+        </aside>
+
+        <section className="pro-stage">
+          {activeTab === "chat" ? (
+            <section className={`ai-panel chat-panel ${!isPro ? "locked-panel" : ""}`}>
+              <div className="chat-window">
+                <div className="chat-top">
+                  <div className="chat-avatar"><Bot size={19} /></div>
+                  <div>
+                    <strong>DompetRapi Advisor</strong>
+                    <span>Online untuk bantu baca cashflow</span>
+                  </div>
+                  <span className="mini-badge">Chat</span>
+                </div>
+                <div className="chat-thread">
+                  {chatMessages.map((message, index) => <ChatBubble key={message.id || `${message.role}-${index}`} message={message} />)}
+                </div>
+                <form className="chat-composer" onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const question = new FormData(form).get("question");
+                  onAdvisor(question);
+                  form.reset();
+                }}>
+                  <textarea name="question" disabled={!isPro} rows={1} placeholder="Tanya: budget mana yang bocor bulan ini?" />
+                  <button className="icon-btn send-btn" disabled={!isPro} aria-label="Kirim chat">
+                    <SendHorizontal size={18} />
+                  </button>
+                </form>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === "receipt" ? (
+            <section className={`panel ai-panel receipt-panel ${!isPro ? "locked-panel" : ""}`}>
+              <PanelHead title="Receipt scanner" badge="Upload atau kamera" />
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const image = receiptDraft.imageData || receiptDraft.imageUrl;
+                onReceipt(receiptDraft.text, image);
+              }}>
+                <div className="capture-grid">
+                  <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
+                    <input type="file" accept="image/*" disabled={!isPro} onChange={handleReceiptImage} />
+                    <ImageUp size={22} />
+                    <strong>Upload gambar</strong>
+                    <span>PNG atau JPG struk</span>
+                  </label>
+                  <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
+                    <input type="file" accept="image/*" capture="environment" disabled={!isPro} onChange={handleReceiptImage} />
+                    <Camera size={22} />
+                    <strong>Ambil foto</strong>
+                    <span>Buka kamera HP</span>
+                  </label>
+                </div>
+
+                {receiptDraft.imageData ? (
+                  <div className="receipt-preview">
+                    <img src={receiptDraft.imageData} alt="Preview struk" />
+                    <div>
+                      <strong>{receiptDraft.imageName || "Struk siap discan"}</strong>
+                      <span>Gambar akan dikirim ke AI saat scan.</span>
+                      <button type="button" className="btn quiet" onClick={clearReceiptImage}>Hapus gambar</button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <textarea
+                  value={receiptDraft.text}
+                  onChange={(event) => setReceiptDraft((current) => ({ ...current, text: event.target.value }))}
+                  disabled={!isPro}
+                  placeholder={"Tambahkan catatan kalau perlu:\nKopi 28000\nRoti 22000\nTotal 50000"}
+                />
+                <input
+                  value={receiptDraft.imageUrl}
+                  onChange={(event) => setReceiptDraft((current) => ({ ...current, imageUrl: event.target.value, imageData: "", imageName: "" }))}
+                  name="image_url"
+                  type="url"
+                  disabled={!isPro}
+                  placeholder="Atau tempel URL gambar struk"
+                />
+                <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
+              </form>
+              <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
+            </section>
+          ) : null}
+
+          {activeTab === "report" ? (
+            <section className={`panel ai-panel report-panel ${!isPro ? "locked-panel" : ""}`}>
+              <PanelHead title="Report analyzer" badge="Insight bulanan" />
+              <div className="report-kpis">
+                <div><span>Pengeluaran</span><strong>{money(metrics.monthlyExpense)}</strong></div>
+                <div><span>Pemasukan</span><strong>{money(metrics.monthlyIncome)}</strong></div>
+                <div><span>Net worth</span><strong>{money(metrics.netWorth)}</strong></div>
+              </div>
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                onReport(reportPrompt);
+              }}>
+                <textarea
+                  value={reportPrompt}
+                  onChange={(event) => setReportPrompt(event.target.value)}
+                  disabled={!isPro}
+                  placeholder="Fokus laporan, misalnya: cari pengeluaran yang paling perlu dipangkas dan target saving bulan depan."
+                />
+                <button className="btn primary" disabled={!isPro}><FileSearch size={18} /> Buat analisis AI</button>
+              </form>
+              <AiOutput lines={ui.report} variant="report" />
+            </section>
+          ) : null}
+
+          {activeTab === "health" ? (
+            <section className="panel ai-panel health-deep-panel">
+              <PanelHead title="Health detail" badge="Score 0-100" />
+              <div className="health-detail-grid">
+                <div className="health-detail-card">
+                  <Gauge size={20} />
+                  <span>Skor</span>
+                  <strong>{metrics.healthScore}/100</strong>
+                </div>
+                <div className="health-detail-card">
+                  <CircleDollarSign size={20} />
+                  <span>Savings rate</span>
+                  <strong>{metrics.savingsRate}%</strong>
+                </div>
+                <div className="health-detail-card">
+                  <CreditCard size={20} />
+                  <span>Utang</span>
+                  <strong>{money(metrics.debt)}</strong>
+                </div>
+              </div>
+              <button className="btn primary" onClick={() => {
+                switchTab("chat");
+                onAdvisor("Jelaskan financial health score saya dan beri tiga langkah paling realistis untuk naik level.");
+              }}>
+                <Bot size={18} /> Bahas score di chat
+              </button>
+            </section>
+          ) : null}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ChatBubble({ message }) {
+  const lines = splitAiText(message.text || "");
+  return (
+    <div className={`chat-bubble ${message.role === "user" ? "user" : "assistant"}`}>
+      {message.loading ? (
+        <span className="typing-dots"><i /><i /><i /></span>
+      ) : (
+        lines.map((line, index) => <p key={index}>{line}</p>)
+      )}
     </div>
   );
 }
@@ -767,34 +1706,27 @@ function Turnstile({ sitekey, onVerify }) {
       script.defer = true;
       document.head.appendChild(script);
     }
-    
     let widgetId;
-    window.turnstileCallback = (token) => {
-      onVerify(token);
-    };
-
+    window.__turnstileCb = (token) => onVerify(token);
     const renderWidget = () => {
       if (window.turnstile) {
-        widgetId = window.turnstile.render("#turnstile-container", {
-          sitekey: sitekey,
-          callback: window.turnstileCallback,
+        widgetId = window.turnstile.render("#cf-turnstile-widget", {
+          sitekey,
+          callback: window.__turnstileCb,
           theme: "auto"
         });
       } else {
-        setTimeout(renderWidget, 100);
+        setTimeout(renderWidget, 150);
       }
     };
-    
     renderWidget();
-    
     return () => {
       if (window.turnstile && widgetId !== undefined) {
         window.turnstile.remove(widgetId);
       }
     };
-  }, [sitekey, onVerify]);
-
-  return <div id="turnstile-container" style={{ margin: "1rem 0" }} />;
+  }, [sitekey]);
+  return <div id="cf-turnstile-widget" style={{ margin: "0.75rem 0" }} />;
 }
 
 function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) {
@@ -831,9 +1763,7 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
           {mode === "register" ? <label>Nama lengkap<input name="full_name" type="text" disabled={demo} placeholder="Nama kamu" required /></label> : null}
           <label>Email<input name="email" type="email" disabled={demo} required /></label>
           <label>Password<input name="password" type="password" disabled={demo} minLength={6} required /></label>
-          
           {!demo && <Turnstile sitekey="0x4AAAAAADaD7d8YIW881-0I" onVerify={setCaptchaToken} />}
-          
           <button className="btn primary" disabled={demo || (!demo && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
         </form>
         <button className="btn ghost" disabled={demo} onClick={onGoogle} style={{ gap: "10px" }}>
@@ -852,32 +1782,25 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
 }
 
 function MoneyInput({ name, defaultValue, disabled, placeholder, marker }) {
-  const [value, setValue] = useState(defaultValue !== undefined && defaultValue !== null ? defaultValue : "");
+  const [value, setValue] = useState(
+    defaultValue !== undefined && defaultValue !== null && defaultValue !== "" ? String(defaultValue) : ""
+  );
 
-  const formatRupiah = (val) => {
-    if (val === "" || val === null || val === undefined) return "";
-    const numberString = val.toString().replace(/[^,\d]/g, '');
-    if (!numberString) return "";
-    const split = numberString.split(',');
-    const sisa = split[0].length % 3;
-    let rupiah = split[0].substr(0, sisa);
-    const ribuan = split[0].substr(sisa).match(/\d{3}/gi);
-
-    if (ribuan) {
-      const separator = sisa ? '.' : '';
-      rupiah += separator + ribuan.join('.');
-    }
-
-    rupiah = split[1] !== undefined ? rupiah + ',' + split[1] : rupiah;
-    return rupiah ? `Rp. ${rupiah}` : '';
+  const formatRupiah = (raw) => {
+    if (raw === "" || raw === null || raw === undefined) return "";
+    const digits = raw.toString().replace(/[^0-9]/g, "");
+    if (!digits) return "";
+    const n = parseInt(digits, 10);
+    if (isNaN(n)) return "";
+    return "Rp. " + n.toLocaleString("id-ID");
   };
 
   const handleChange = (e) => {
-    setValue(e.target.value.replace(/[^0-9]/g, ''));
+    setValue(e.target.value.replace(/[^0-9]/g, ""));
   };
 
-  const rawValue = value.toString().replace(/[^0-9]/g, '');
-  const formattedPlaceholder = placeholder ? formatRupiah(placeholder) : "";
+  const rawValue = value.replace(/[^0-9]/g, "");
+  const formattedPlaceholder = placeholder ? ("Rp. " + parseInt(placeholder.replace(/[^0-9]/g, "") || "0", 10).toLocaleString("id-ID")) : "";
 
   return (
     <div className="money-input-wrapper">
@@ -1053,6 +1976,7 @@ function PlanCard({ name, price, items, featured }) {
       <h3>{name}</h3>
       <strong>{price}<small>/tahun</small></strong>
       {items.map((item) => <p key={item}><Check size={16} /> {item}</p>)}
+      <button className={featured ? "btn primary" : "btn ghost"} onClick={() => go("app/pro")}>Buka AI Pro</button>
     </article>
   );
 }
@@ -1234,8 +2158,8 @@ function getMetrics(data) {
   const monthTransactions = data.transactions.filter((item) => monthKey(item.transaction_date) === month);
   const monthlyIncome = sum(monthTransactions.filter((item) => item.type === "income"), "amount");
   const monthlyExpense = sum(monthTransactions.filter((item) => item.type === "expense"), "amount");
-  const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater", "debt"].includes(item.type)), "balance");
-  const debt = Math.abs(sum(data.wallets.filter((item) => ["credit_card", "paylater", "debt"].includes(item.type)), "balance"));
+  const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater"].includes(item.type)), "balance");
+  const debt = Math.abs(sum(data.wallets.filter((item) => ["credit_card", "paylater"].includes(item.type)), "balance"));
   const netWorth = assets - debt;
   const savingsRate = monthlyIncome ? Math.round(((monthlyIncome - monthlyExpense) / monthlyIncome) * 100) : 0;
   const overBudget = enrichBudgets(data).filter((item) => item.percent > 100).length;
