@@ -32,6 +32,9 @@ import {
   Ruler,
   ScanLine,
   SendHorizontal,
+  ChevronLeft,
+  Eye,
+  EyeOff,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -89,9 +92,63 @@ const NAV = [
 
 const NAV_AI = [
   ["pro-chat", Bot, "AI Chat"],
-  ["pro-scan", ScanLine, "Scan Struk"],
+  ["pro-scan", ScanLine, "Scan"],
   ["pro-report", FileSearch, "Analisis"],
   ["pro-health", Gauge, "Health"]
+];
+
+const MOTIVASI_QUOTES = [
+  "Nabung hari ini, bebas besok.",
+  "Setiap rupiah yang kamu simpan adalah masa depan yang kamu jaga.",
+  "Kaya bukan tentang berapa yang kamu hasilkan, tapi berapa yang kamu simpan.",
+  "Mulai kecil, tapi mulai sekarang.",
+  "Investasi terbaik adalah investasi pada masa depanmu.",
+  "Jangan habiskan uang yang belum ada di kantongmu.",
+  "Satu pengeluaran impulsif yang ditahan = satu langkah ke kebebasan.",
+  "Kebiasaan nabung kecil hari ini = gaya hidup besar besok.",
+  "Keuangan sehat dimulai dari keputusan kecil yang konsisten.",
+  "Bukan soal berapa yang kamu punya, tapi soal gimana kamu kelolanya.",
+  "Impianmu butuh dana, budgetmu butuh disiplin.",
+  "Nabung bukan berarti pelit, itu berarti punya prioritas.",
+  "Setiap pengeluaran adalah keputusan — pastikan itu sepadan.",
+  "Dana darurat hari ini adalah ketenangan jiwa untuk hari esok.",
+  "Cerdas belanja bukan berarti murah, tapi berarti bijak.",
+  "Bebas finansial bukan keberuntungan, itu hasil perencanaan.",
+  "Lacak pengeluaranmu sebelum pengeluaran yang melacakmu.",
+  "Hemat bukan pilihan, itu gaya hidup yang dipilih orang sukses.",
+  "Uang kecil yang dikelola baik mengalahkan uang besar yang dihambur.",
+  "Besarkan tabunganmu lebih cepat dari gaya hidupmu.",
+  "Disiplin finansial hari ini = kebebasan finansial esok hari.",
+  "Setiap rupiah punya tujuan — berikan ia arah yang jelas.",
+  "Budget bukan pembatasan, itu peta menuju kebebasanmu.",
+  "Orang sukses tidak beruntung, mereka berencana.",
+  "Cicilan kecil jangka panjang bisa jadi beban terbesar.",
+  "Prioritaskan apa yang penting, bukan apa yang terlihat keren.",
+  "Pengeluaranmu mencerminkan nilai-nilai hidupmu.",
+  "Nabung 10% dari penghasilanmu dan lupa uang itu ada.",
+  "Kekayaan sejati adalah ketika uang bekerja untukmu.",
+  "Jangan beli sesuatu yang tidak bisa kamu beli dua kali.",
+  "Tujuan finansial tanpa rencana hanya sekadar harapan.",
+  "Review keuanganmu setiap bulan, bukan setahun sekali.",
+  "Inflasi gaya hidup adalah musuh terbesar dompetmu.",
+  "Semakin awal kamu mulai nabung, semakin besar hasilnya.",
+  "Kaya bukan soal angka di rekening, tapi pilihan hidup yang tepat.",
+  "Belajar dari pengeluaran kemarin untuk keputusan lebih baik hari ini.",
+  "Sabar adalah strategi finansial yang paling underrated.",
+  "Setiap 'tidak' pada pengeluaran impulsif adalah 'iya' untuk mimpimu.",
+  "Uang datang dan pergi, tapi kebiasaan baik tinggal selamanya.",
+  "Tidak ada kata terlambat untuk mulai menabung.",
+  "Hidup sederhana bukan berarti susah, tapi berarti bijaksana.",
+  "Raih impian bukan dengan mengeluh tapi dengan mengelola.",
+  "Satu keputusan finansial yang baik bisa mengubah hidupmu.",
+  "Jangan bandingkan dompetmu dengan orang lain, fokus pada tujuanmu.",
+  "Keberhasilan finansial adalah marathon, bukan sprint.",
+  "Tabunganmu adalah versi masa depanmu yang sedang kamu bangun.",
+  "Kendalikan uangmu sebelum uang mengendalikanmu.",
+  "Setiap sen tersimpan hari ini adalah investasi terbaikmu.",
+  "Masa depanmu dimulai dari keputusan keuanganmu hari ini.",
+  "Finansial sehat bukan tujuan, itu gaya hidup.",
+  "Dompet tipis bisa jadi tebal kalau kamu konsisten nabung."
 ];
 
 const ACCENTS = [
@@ -119,10 +176,13 @@ const initialUi = {
   toast: null,
   toastType: "info",
   proTab: "chat",
+  balanceHidden: false,
+  txModal: false,
+  scanResult: null,
   advisor: [
     {
       role: "assistant",
-      text: "Halo, aku AI DompetRapi. Tanya apa saja soal cashflow, budget, utang, atau target tabunganmu."
+      text: "Heyy bestieee! 😭✨ Gue ShanIA, AI sahabat keuangan lo yang siap bantu 24/7! Spill aja mau tanya apa — soal budget, cashflow, nabung, utang, atau apapun deh! Gue literally di sini buat lo 💅"
     }
   ],
   receipt: [],
@@ -573,12 +633,13 @@ function App() {
   }
 
   function runAdvisor(question) {
+    const userName = profile?.full_name?.split(" ")[0] || "bestie";
     const userQuestion = String(question || "").trim() || "Analisis kondisi keuangan bulan ini dan beri 3 saran paling penting.";
     const loadingId = `loading-${Date.now()}`;
     runAI({
       slot: "advisor",
       prompt: userQuestion,
-      system: "Kamu adalah AI financial advisor DompetRapi untuk pengguna Indonesia. Jawab dalam bahasa Indonesia natural, praktis, singkat, dan berbasis data. Hindari klaim kepastian investasi. Jangan pakai markdown tebal, tanda *** atau karakter China/Jepang/Korea.",
+      system: `Kamu adalah ShanIA, AI cewek gaul sahabat ${userName} (nama lengkap dia: Aliyul Manan Nur Ihsan, tinggal di Indonesia, timezone Asia/Jakarta) yang juga jago banget soal keuangan. Lo lahir 2006, Gen Z tulen, asik banget kayak sahabat yang udah kenal dari kecil. Selalu panggil user dengan "best" atau "bestie". Jawab dengan gaya bahasa gaul anak Jaksel yang fun, ekspresif, pakai emoji (tapi jangan lebay). Kasih saran keuangan yang ceplas-ceplos tapi peduli. Jangan kaku kayak robot. Jangan pakai markdown tebal, tanda ***, atau karakter Asia yang aneh.`,
       context: buildFinanceContext(data, budgets, metrics),
       onStart: () => {
         setUi((current) => ({
@@ -587,7 +648,7 @@ function App() {
           advisor: [
             ...normalizeChatMessages(current.advisor),
             { role: "user", text: userQuestion },
-            { id: loadingId, role: "assistant", text: "Membaca data keuanganmu...", loading: true }
+            { id: loadingId, role: "assistant", text: "ShanIA lagi mikir... 💅", loading: true }
           ]
         }));
       },
@@ -613,21 +674,35 @@ function App() {
   }
 
   function runReceipt(text, imageUrl) {
+    const userName = profile?.full_name?.split(" ")[0] || "bestie";
     runAI({
       slot: "receipt",
-      prompt: text || "Baca struk dari gambar ini. Ekstrak item, total, dan sarankan kategori transaksi.",
+      prompt: text || "Scan struk ini bestie! Kasih tau gue ada apa aja.",
       imageUrl,
-      system: "Kamu adalah receipt scanner DompetRapi. Ekstrak item, total, tanggal jika ada, dan kategori transaksi. Jawab ringkas dalam bahasa Indonesia.",
-      context: buildFinanceContext(data, budgets, metrics)
+      system: `Kamu ShanIA, AI cewek gaul yang bantuin ${userName} (nama lengkap dia: Aliyul Manan Nur Ihsan, timezone Asia/Jakarta) scan struk belanja! Analisis struk ini dan kasih ringkasan dengan gaya gaul Gen Z yang fun dan ekspresif pakai emoji. Setelah kasih ringkasan asik, WAJIB tambahkan blok JSON di paling akhir response dalam format ini (jangan skip!):\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal nggak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
+      context: buildFinanceContext(data, budgets, metrics),
+      onSuccess: (lines, payload) => {
+        const cleanLines = lines.filter(l => !l.match(/^[\{\["]/));
+        setUi((current) => ({ ...current, receipt: cleanLines.length ? cleanLines : lines }));
+        const rawText = payload?.text || "";
+        const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[1]);
+            setUi((current) => ({ ...current, scanResult: parsed }));
+          } catch {}
+        }
+      }
     });
   }
 
   function runReport(extraPrompt) {
+    const userName = profile?.full_name?.split(" ")[0] || "bestie";
     const focus = String(extraPrompt || "").trim();
     runAI({
       slot: "report",
-      prompt: `Buat laporan analisis keuangan bulan ini. Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
-      system: "Kamu adalah report analyzer DompetRapi. Buat laporan dalam bahasa Indonesia dengan kalimat pendek dan actionable. Jangan pakai markdown tebal, tanda *** atau karakter China/Jepang/Korea.",
+      prompt: `Buatin laporan analisis keuangan ${userName} bulan ini dong! Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
+      system: `Kamu ShanIA, AI cewek gaul yang jago analisis keuangan sahabatnya, ${userName} (nama lengkap dia: Aliyul Manan Nur Ihsan, timezone Asia/Jakarta). Buat laporan dalam bahasa Indonesia gaul tapi informatif, kalimat pendek dan actionable. Selalu panggil user dengan "bestie". Pakai emoji yang relevan tapi jangan lebay. Jangan pakai markdown tebal, tanda ***, atau karakter Asia aneh.`,
       context: buildFinanceContext(data, budgets, metrics)
     });
   }
@@ -1004,10 +1079,9 @@ function Workspace(props) {
               {label}
             </button>
           ))}
-          <div className="side-nav-group-label">AI Pro</div>
+          <div className="side-nav-group-label">ShanIA AI</div>
           {NAV_AI.map(([key, Icon, label]) => (
-            <button key={key} className={`nav-ai-item ${key === page ? "active" : ""}`} onClick={() => go(`app/${key}`)}>
-              <Icon size={18} />
+            <button key={key} className={`nav-ai-item ${key === page ? "active" : ""}`} onClick={() => go(`app/${key}`)}>              <Icon size={18} />
               {label}
             </button>
           ))}
@@ -1035,6 +1109,16 @@ function Workspace(props) {
           </div>
         </header>
 
+        {page !== "dashboard" ? (
+          <button
+            className="floating-back-btn"
+            onClick={() => window.history.length > 1 ? window.history.back() : go("app/dashboard")}
+            aria-label="Kembali"
+          >
+            <ChevronLeft size={18} /> Kembali
+          </button>
+        ) : null}
+
         {demo ? (
           <div className="demo-bar">
             <BadgeCheck size={18} />
@@ -1061,11 +1145,11 @@ function Workspace(props) {
               <h2>{title}</h2>
               <span>{subtitle}</span>
             </div>
-            <HeaderAction page={page} />
+            <HeaderAction page={page} setUi={setUi} />
           </div>
         ) : null}
 
-        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} />}
+        {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} ui={ui} profile={profile} />}
         {page === "wallets" && <Wallets {...props} />}
         {page === "transactions" && <Transactions {...props} />}
         {page === "budgets" && <Budgets {...props} />}
@@ -1073,28 +1157,48 @@ function Workspace(props) {
         {isProPage && <ProLab {...props} page={page} />}
         {page === "account" && <AccountPanel {...props} />}
       </main>
-      <MobileBottomNav page={page} />
+
+      <MobileBottomNav page={page} setUi={setUi} />
+
+      {ui.txModal ? (
+        <TransactionModal
+          data={props.data}
+          ui={ui}
+          setUi={setUi}
+          demo={props.demo}
+          onTransaction={(values) => {
+            props.onTransaction(values);
+            setUi(c => ({ ...c, txModal: false }));
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function HeaderAction({ page }) {
-  if (page === "transactions") return <button className="btn primary" onClick={openTransactionComposer}><Plus size={18} /> Transaksi</button>;
-  return <button className="btn ghost" onClick={() => go("app/pro")}><Sparkles size={18} /> AI Pro</button>;
+function HeaderAction({ page, setUi }) {
+  if (page === "transactions") return (
+    <button className="btn primary" onClick={() => setUi(c => ({ ...c, txModal: true }))}>
+      <Plus size={18} /> Transaksi
+    </button>
+  );
+  return null;
 }
 
-function openTransactionComposer() {
-  go("app/transactions");
-  window.setTimeout(() => document.querySelector("[data-amount-input]")?.focus(), 120);
+function openTransactionComposer(setUi) {
+  if (setUi) {
+    setUi(c => ({ ...c, txModal: true }));
+  } else {
+    go("app/transactions");
+  }
 }
 
-function MobileBottomNav({ page }) {
-  const isAiPage = page.startsWith("pro");
+function MobileBottomNav({ page, setUi }) {
   const items = [
     ["dashboard", LayoutDashboard, "Dashboard"],
     ["budgets", Ruler, "Budget"],
     ["add", Plus, "Tambah"],
-    ["pro-chat", Bot, "AI Chat"],
+    ["transactions", ReceiptText, "Riwayat"],
     ["account", UserRound, "Akun"]
   ];
 
@@ -1107,7 +1211,7 @@ function MobileBottomNav({ page }) {
           <button
             key={key}
             className={`${isAdd ? "dock-add" : ""} ${active ? "active" : ""}`}
-            onClick={isAdd ? openTransactionComposer : () => go(`app/${key}`)}
+            onClick={isAdd ? () => setUi(c => ({ ...c, txModal: true })) : () => go(`app/${key}`)}
             aria-label={isAdd ? "Tambah transaksi" : label}
           >
             <span><Icon size={isAdd ? 34 : 22} /></span>
@@ -1119,7 +1223,7 @@ function MobileBottomNav({ page }) {
   );
 }
 
-function Dashboard({ data, budgets, metrics, theme, setUi }) {
+function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
   const trend = trendData(data);
   const topExpense = topExpenseCategory(data);
   const totalBudgetLimit = sum(budgets, "limit");
@@ -1132,14 +1236,17 @@ function Dashboard({ data, budgets, metrics, theme, setUi }) {
   const billBudget = budgets.find((budget) => /tagihan|listrik|internet|cicilan|sewa/i.test(budget.categoryName));
   const upcomingBill = billBudget ? Math.max(0, number(billBudget.limit) - number(billBudget.spent)) : 0;
   const latestTransactions = data.transactions.slice(0, 5);
+  const greeting = getGreeting(profile?.full_name);
+  const [motivasi] = React.useState(() => MOTIVASI_QUOTES[Math.floor(Math.random() * MOTIVASI_QUOTES.length)]);
+  const hidden = ui?.balanceHidden || false;
   const menuItems = [
     [Ruler, "Budget", "Limit kategori", () => go("app/budgets")],
-    [ScanLine, "Scan Struk", "AI scanner", () => go("app/pro-scan")],
+    [ScanLine, "Scan", "AI scanner", () => go("app/pro-scan")],
     [Target, "Goals", "Target nabung", () => go("app/goals")],
     [WalletCards, "Aset", "Semua saldo", () => go("app/wallets")],
     [CreditCard, "Utang", "Kartu & PayLater", () => go("app/wallets")],
     [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")],
-    [Bot, "AI Chat", "Advisor personal", () => go("app/pro-chat")],
+    [Bot, "AI Chat", "Advisor ShanIA", () => go("app/pro-chat")],
     [BarChart3, "Analisis", "Laporan AI", () => go("app/pro-report")]
   ];
 
@@ -1148,30 +1255,34 @@ function Dashboard({ data, budgets, metrics, theme, setUi }) {
       <section className="balance-hero">
         <div className="balance-hero-top">
           <div>
-            <span>Sekilas hari ini</span>
-            <h2>{money(metrics.netWorth)}</h2>
-            <p>saldo bersih dari semua dompet</p>
+            <span>{greeting}</span>
+            <h2>{hidden ? "Rp \u2022\u2022\u2022\u2022\u2022\u2022\u2022" : money(metrics.netWorth)}</h2>
+            <p>{motivasi}</p>
           </div>
-          <button className="hero-lock" aria-label="Mode privasi saldo">
-            <ShieldCheck size={20} />
+          <button
+            className="hero-lock"
+            aria-label={hidden ? "Tampilkan saldo" : "Sembunyikan saldo"}
+            onClick={() => setUi(c => ({ ...c, balanceHidden: !c.balanceHidden }))}
+          >
+            {hidden ? <EyeOff size={20} /> : <Eye size={20} />}
           </button>
         </div>
 
         <div className="balance-row">
           <div>
             <small>Pemasukan</small>
-            <strong className="income-text">{shortMoney(metrics.monthlyIncome)}</strong>
+            <strong className="income-text">{hidden ? "\u2022\u2022\u2022" : shortMoney(metrics.monthlyIncome)}</strong>
           </div>
           <div>
             <small>Pengeluaran</small>
-            <strong className="expense-text">{shortMoney(metrics.monthlyExpense)}</strong>
+            <strong className="expense-text">{hidden ? "\u2022\u2022\u2022" : shortMoney(metrics.monthlyExpense)}</strong>
           </div>
         </div>
 
         <div className="hero-progress">
           <div>
             <span>Budget tersisa</span>
-            <b>{money(remainingBudget)}</b>
+            <b>{hidden ? "\u2022\u2022\u2022" : money(remainingBudget)}</b>
           </div>
           <Progress value={expenseProgress} danger={expenseProgress > 100} />
         </div>
@@ -1266,8 +1377,8 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout,
   const shortcuts = [
     [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
     [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
-    [ReceiptText, "Transaksi", "Riwayat & tambah", openTransactionComposer],
-    [Sparkles, "AI Pro", "Chat dan scanner", () => go("app/pro")]
+    [ReceiptText, "Transaksi", "Riwayat & tambah", () => go("app/transactions")],
+    [Bot, "ShanIA AI", "Chat dan scanner", () => go("app/pro-chat")]
   ];
 
   return (
@@ -1584,11 +1695,12 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
 
       {activeTab === "receipt" ? (
         <section className={`panel ai-panel receipt-panel ${!isPro ? "locked-panel" : ""}`}>
-          <PanelHead title="Scan Struk" badge="AI Scanner" />
+          <PanelHead title="Scan Struk" badge="ShanIA AI" />
           <form onSubmit={(event) => {
             event.preventDefault();
             const image = receiptDraft.imageData || receiptDraft.imageUrl;
             onReceipt(receiptDraft.text, image);
+            setUi(c => ({ ...c, scanResult: null }));
           }}>
             <div className="capture-grid">
               <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
@@ -1632,6 +1744,36 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
             <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
           </form>
           <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
+
+          {ui.scanResult ? (
+            <div className="scan-save-panel">
+              <PanelHead title="Simpan ke Transaksi?" badge={`Total: ${money(ui.scanResult.total || 0)}`} />
+              <SmartForm
+                disabled={!isPro}
+                defaults={{
+                  type: "expense",
+                  amount: String(ui.scanResult.total || ""),
+                  transaction_date: ui.scanResult.date || isoDate(new Date()),
+                  note: ui.scanResult.note || ui.scanResult.merchant || "",
+                  wallet_id: data.wallets[0]?.id || "",
+                  category_id: data.categories.find(c => c.name?.toLowerCase().includes((ui.scanResult.category || "").toLowerCase()))?.id || ""
+                }}
+                fields={[
+                  ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]]],
+                  ["amount", "money", "Total", String(ui.scanResult.total || "0")],
+                  ["wallet_id", "select", "Dompet", data.wallets.map(w => [w.id, w.name])],
+                  ["category_id", "select", "Kategori", data.categories.filter(c => c.type === "expense").map(c => [c.id, c.name])],
+                  ["transaction_date", "date", "Tanggal"],
+                  ["note", "text", "Catatan", ui.scanResult.note || ui.scanResult.merchant || ""]
+                ]}
+                submitLabel="Simpan Transaksi ✨"
+                onSubmit={(values) => {
+                  props.onTransaction(values);
+                  setUi(c => ({ ...c, scanResult: null, receipt: [] }));
+                }}
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -2424,6 +2566,54 @@ function replaceLoadingMessage(messages, loadingId, replacement) {
     return { id: `${loadingId}-done`, ...replacement };
   });
   return replaced ? next : [...next, replacement];
+}
+
+function getGreeting(name) {
+  const hour = new Date().getHours();
+  let time = "malam";
+  if (hour >= 4 && hour < 11) time = "pagi";
+  else if (hour >= 11 && hour < 15) time = "siang";
+  else if (hour >= 15 && hour < 18) time = "sore";
+  
+  const firstName = name ? name.split(" ")[0] : "bestie";
+  return `Selamat ${time}, ${firstName} ✨`;
+}
+
+function isoDate(date) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+}
+
+function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
+  return (
+    <>
+      <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, txModal: false }))} style={{ display: 'block' }} />
+      <div className="panel tx-modal" style={{
+        position: "fixed", top: "15vh", left: "50%", transform: "translateX(-50%)", 
+        width: "90%", maxWidth: "420px", zIndex: 1000, 
+        background: "var(--surface)", border: "1px solid var(--line-strong)",
+        boxShadow: "var(--shadow-xl)"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>Catat Transaksi</h3>
+          <button className="icon-btn" onClick={() => setUi(c => ({ ...c, txModal: false }))}><X size={18} /></button>
+        </div>
+        <SmartForm
+          disabled={demo}
+          defaults={{ type: "expense", amount: "", transaction_date: isoDate(new Date()), note: "", wallet_id: data.wallets[0]?.id || "", category_id: data.categories.filter(c => c.type === "expense")[0]?.id || "" }}
+          fields={[
+            ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]]],
+            ["amount", "money", "Nominal", "50000"],
+            ["wallet_id", "select", "Dompet", data.wallets.map(w => [w.id, w.name])],
+            ["category_id", "select", "Kategori", data.categories.map(c => [c.id, c.name])],
+            ["transaction_date", "date", "Tanggal"],
+            ["note", "text", "Catatan", "Beli kopi"]
+          ]}
+          submitLabel="Simpan Transaksi"
+          onSubmit={onTransaction}
+        />
+      </div>
+    </>
+  );
 }
 
 function cleanAiLine(text) {
