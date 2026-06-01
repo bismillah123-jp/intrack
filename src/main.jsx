@@ -179,6 +179,7 @@ const initialUi = {
   balanceHidden: false,
   txModal: false,
   walletModal: false,
+  budgetModal: false,
   confirmPrompt: null,
   scanResult: null,
   advisor: [
@@ -1470,7 +1471,12 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
         {data.wallets.map((wallet) => (
           <article className="wallet-tile" key={wallet.id}>
             <div className="tile-top">
-              <span className="wallet-swatch" style={{ background: wallet.color }} />
+              <span 
+                className="wallet-swatch" 
+                style={wallet.color?.startsWith("#") ? { background: wallet.color } : { background: "var(--surface)", fontSize: "1.4rem", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--line-subtle)" }}
+              >
+                {!wallet.color?.startsWith("#") && wallet.color}
+              </span>
               <div>
                 <h3>{wallet.name}</h3>
                 <p>{walletType(wallet.type)}</p>
@@ -1512,23 +1518,10 @@ function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
   const expenseCategories = data.categories.filter((item) => item.type === "expense");
 
   return (
-    <div className="two-col">
-      <section className="panel form-panel">
-        <PanelHead title={edit ? "Edit budget" : "Buat budget"} badge={periodLabel()} />
-        <SmartForm
-          disabled={demo}
-          defaults={edit}
-          fields={[
-            ["id", "hidden"],
-            ["category_id", "select", "Kategori", expenseCategories.map((item) => [item.id, item.name])],
-            ["method", "select", "Metode", [["fixed", "Fixed"], ["percentage", "Percentage"]]],
-            ["amount", "money", "Limit nominal", "1500000"],
-            ["percentage", "number", "Persentase", "15"]
-          ]}
-          submitLabel={edit ? "Simpan" : "Tambah"}
-          onSubmit={onBudget}
-        />
-      </section>
+    <div className="single-col">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+        <button className="btn primary" onClick={() => setUi(c => ({ ...c, budgetModal: true }))}>+ Buat Budget</button>
+      </div>
       <section className="cards-grid">
         {budgets.map((budget) => (
           <article className="budget-tile" key={budget.id}>
@@ -1538,7 +1531,7 @@ function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
                 <h3>{budget.categoryName}</h3>
               </div>
               <div className="tile-actions">
-                <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, budgetEditId: budget.id }))}><Pencil size={16} /></button>
+                <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, budgetEditId: budget.id, budgetModal: true }))}><Pencil size={16} /></button>
                 <button className="icon-btn" disabled={demo} onClick={() => onDelete("budgets", budget.id, "Budget dihapus.")}><Trash2 size={16} /></button>
               </div>
             </div>
@@ -1546,6 +1539,10 @@ function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
           </article>
         ))}
       </section>
+
+      {ui.budgetModal && (
+        <BudgetModal edit={edit} ui={ui} setUi={setUi} demo={demo} expenseCategories={expenseCategories} onBudget={onBudget} />
+      )}
     </div>
   );
 }
@@ -1953,6 +1950,17 @@ function SmartForm({ fields, defaults = {}, disabled, submitLabel, onSubmit, bef
     }}>
       {fields.map(([name, type, label, options, onChange, marker]) => {
         if (type === "hidden") return <input key={name} name={name} type="hidden" defaultValue={defaults?.[name] || ""} />;
+        if (type === "datalist") {
+          return (
+            <label key={name}>
+              {label}
+              <input name={name} list={`${name}-list`} placeholder="Pilih atau ketik icon/emoji..." defaultValue={defaults?.[name] || options[0][0]} disabled={disabled} required={false} />
+              <datalist id={`${name}-list`}>
+                {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+              </datalist>
+            </label>
+          );
+        }
         if (type === "select") {
           return (
             <label key={name}>
@@ -2547,9 +2555,9 @@ function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
         position: "fixed", top: "5vh", left: "50%", transform: "translateX(-50%)", 
         width: "90%", maxWidth: "420px", zIndex: 1000, 
         background: "var(--surface)", border: "1px solid var(--line-strong)",
-        boxShadow: "var(--shadow-xl)"
+        boxShadow: "var(--shadow-xl)", borderRadius: "16px", overflow: "hidden"
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "4px" }}>
           <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>Catat Transaksi</h3>
           <button className="icon-btn" onClick={() => setUi(c => ({ ...c, txModal: false }))}><X size={18} /></button>
         </div>
@@ -2580,9 +2588,9 @@ function WalletModal({ edit, ui, setUi, demo, backend, onWallet }) {
         position: "fixed", top: "10vh", left: "50%", transform: "translateX(-50%)", 
         width: "90%", maxWidth: "420px", zIndex: 1000, 
         background: "var(--surface)", border: "1px solid var(--line-strong)",
-        boxShadow: "var(--shadow-xl)"
+        boxShadow: "var(--shadow-xl)", borderRadius: "16px", overflow: "hidden"
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "4px" }}>
           <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>{edit ? "Edit Dompet" : "Tambah Dompet"}</h3>
           <button className="icon-btn" onClick={() => setUi(c => ({ ...c, walletModal: false, walletEditId: null }))}><X size={18} /></button>
         </div>
@@ -2594,23 +2602,61 @@ function WalletModal({ edit, ui, setUi, demo, backend, onWallet }) {
             ["name", "text", "Nama dompet", "BCA Harian"],
             ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
             ["balance", "money", "Saldo", "0"],
-            ["color", "select", "Warna / Tema", [
+            ["color", "datalist", "Warna / Emoji", [
               ["#0f766e", "🟢 Teal (Default)"],
-              ["#2563eb", "🔵 Bank Biru (BCA/Mandiri)"],
-              ["#ea580c", "🟧 Bank Oranye (BNI)"],
-              ["#be185d", "🌸 Pink (Bank Jago)"],
-              ["#16a34a", "🟩 e-Wallet Hijau (GoPay/Grab)"],
-              ["#9333ea", "🟣 e-Wallet Ungu (OVO)"],
-              ["#0284c7", "🟦 e-Wallet Biru (DANA)"],
-              ["#ca8a04", "🟡 e-Wallet Kuning (ShopeePay)"],
-              ["#e11d48", "🔴 e-Wallet Merah (LinkAja)"],
-              ["#1e293b", "⬛ Hitam (Cash/Credit)"]
+              ["#2563eb", "🔵 Bank Biru"],
+              ["#ea580c", "🟧 Bank Oranye"],
+              ["#be185d", "🌸 Pink"],
+              ["#16a34a", "🟩 e-Wallet Hijau"],
+              ["#9333ea", "🟣 e-Wallet Ungu"],
+              ["#0284c7", "🟦 e-Wallet Biru"],
+              ["#ca8a04", "🟡 e-Wallet Kuning"],
+              ["#e11d48", "🔴 e-Wallet Merah"],
+              ["#1e293b", "⬛ Hitam"],
+              ["🏦", "🏦 Bangunan Bank"],
+              ["💳", "💳 Kartu Kredit"],
+              ["💸", "💸 Uang Kertas"]
             ]]
           ]}
           submitLabel={edit ? "Simpan Dompet" : "Tambah Dompet"}
           onSubmit={(v) => {
             onWallet(v);
             setUi(c => ({ ...c, walletModal: false, walletEditId: null }));
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+function BudgetModal({ edit, ui, setUi, demo, expenseCategories, onBudget }) {
+  return (
+    <>
+      <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, budgetModal: false, budgetEditId: null }))} style={{ display: 'block' }} />
+      <div className="panel tx-modal" style={{
+        position: "fixed", top: "10vh", left: "50%", transform: "translateX(-50%)", 
+        width: "90%", maxWidth: "420px", zIndex: 1000, 
+        background: "var(--surface)", border: "1px solid var(--line-strong)",
+        boxShadow: "var(--shadow-xl)", borderRadius: "16px", overflow: "hidden"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "4px" }}>
+          <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>{edit ? "Edit Budget" : "Buat Budget"}</h3>
+          <button className="icon-btn" onClick={() => setUi(c => ({ ...c, budgetModal: false, budgetEditId: null }))}><X size={18} /></button>
+        </div>
+        <SmartForm
+          disabled={demo}
+          defaults={edit}
+          fields={[
+            ["id", "hidden"],
+            ["category_id", "select", "Kategori", expenseCategories.map((item) => [item.id, item.name])],
+            ["method", "select", "Metode", [["fixed", "Fixed"], ["percentage", "Percentage"]]],
+            ["amount", "money", "Limit nominal", "1500000"],
+            ["percentage", "number", "Persentase", "15"]
+          ]}
+          submitLabel={edit ? "Simpan Budget" : "Tambah Budget"}
+          onSubmit={(v) => {
+            onBudget(v);
+            setUi(c => ({ ...c, budgetModal: false, budgetEditId: null }));
           }}
         />
       </div>
@@ -2626,14 +2672,14 @@ function ConfirmModal({ ui, setUi, onConfirm }) {
         position: "fixed", top: "30vh", left: "50%", transform: "translateX(-50%)", 
         width: "90%", maxWidth: "320px", zIndex: 10000, 
         background: "var(--surface)", border: "1px solid var(--line-strong)",
-        boxShadow: "var(--shadow-xl)", textAlign: "center", padding: "24px"
+        boxShadow: "var(--shadow-xl)", textAlign: "center", padding: "24px", borderRadius: "16px", overflow: "hidden"
       }}>
         <Trash2 size={40} style={{ color: "#ef4444", marginBottom: "12px", display: "inline-block" }} />
         <h3 style={{ margin: "0 0 8px 0", fontSize: "1.2rem", fontWeight: 700 }}>Hapus Data?</h3>
         <p style={{ margin: "0 0 24px 0", color: "var(--ink-light)" }}>Tindakan ini tidak bisa dibatalkan.</p>
         <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
           <button className="btn quiet" style={{ flex: 1 }} onClick={() => setUi(c => ({ ...c, confirmPrompt: null }))}>Batal</button>
-          <button className="btn danger" style={{ flex: 1, background: "#ef4444", color: "white", border: "none", padding: "12px", borderRadius: "12px", fontWeight: "bold", cursor: "pointer" }} onClick={onConfirm}>Ya, Hapus</button>
+          <button className="btn danger" style={{ flex: 1, background: "#ef4444", color: "white", border: "none", padding: "12px", borderRadius: "16px", fontWeight: "bold", cursor: "pointer" }} onClick={onConfirm}>Ya, Hapus</button>
         </div>
       </div>
     </>
