@@ -1092,7 +1092,7 @@ function Workspace(props) {
           <ThemeControls theme={theme} setTheme={setTheme} />
           {!demo ? (
             <button className="btn quiet" onClick={onLogout}>
-              <LogOut size={16} /> Keluar
+              <LogOut size={16} /> Logout
             </button>
           ) : null}
         </div>
@@ -1115,7 +1115,7 @@ function Workspace(props) {
             onClick={() => window.history.length > 1 ? window.history.back() : go("app/dashboard")}
             aria-label="Kembali"
           >
-            <ChevronLeft size={18} /> Kembali
+            <ChevronLeft size={28} />
           </button>
         ) : null}
 
@@ -1141,7 +1141,6 @@ function Workspace(props) {
         {page !== "dashboard" ? (
           <div className="page-head">
             <div>
-              <p className="kicker">DompetRapi</p>
               <h2>{title}</h2>
               <span>{subtitle}</span>
             </div>
@@ -1374,12 +1373,6 @@ function InsightCard({ icon: Icon, label, value, copy, tone }) {
 function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout, onUpdateProfile, onUpdatePassword }) {
   const [showProfileForm, setShowProfileForm] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const shortcuts = [
-    [LayoutDashboard, "Dashboard", "Ringkasan utama", () => go("app/dashboard")],
-    [WalletCards, "Dompet", "Kelola saldo", () => go("app/wallets")],
-    [ReceiptText, "Transaksi", "Riwayat & tambah", () => go("app/transactions")],
-    [Bot, "ShanIA AI", "Chat dan scanner", () => go("app/pro-chat")]
-  ];
 
   return (
     <div className="account-view">
@@ -1402,68 +1395,56 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout,
       </section>
 
       {!demo ? (
-        <section className="panel settings-panel">
-          <PanelHead title="Ubah data diri" badge="Profil" />
-          <button className="btn ghost" onClick={() => setShowProfileForm((v) => !v)}>
-            <Pencil size={16} /> {showProfileForm ? "Tutup form" : "Edit profil"}
-          </button>
-          {showProfileForm && (
-            <form className="smart-form" style={{ marginTop: "12px" }} onSubmit={(e) => {
-              e.preventDefault();
-              const values = Object.fromEntries(new FormData(e.currentTarget));
-              onUpdateProfile(values);
-              setShowProfileForm(false);
-            }}>
-              <label>Nama lengkap<input name="full_name" type="text" defaultValue={profile?.full_name || ""} required /></label>
-              <button className="btn primary"><Check size={16} /> Simpan profil</button>
-            </form>
-          )}
-        </section>
-      ) : null}
-
-      {!demo ? (
-        <section className="panel settings-panel">
-          <PanelHead title="Ganti password" badge="Keamanan" />
-          <button className="btn ghost" onClick={() => setShowPasswordForm((v) => !v)}>
-            <ShieldCheck size={16} /> {showPasswordForm ? "Tutup form" : "Ganti password"}
-          </button>
-          {showPasswordForm && (
-            <form className="smart-form" style={{ marginTop: "12px" }} onSubmit={(e) => {
-              e.preventDefault();
-              const values = Object.fromEntries(new FormData(e.currentTarget));
-              if (values.new_password !== values.confirm_password) {
-                alert("Password baru tidak cocok!");
-                return;
-              }
-              onUpdatePassword(values);
-              setShowPasswordForm(false);
-            }}>
-              <label>Password lama<input name="old_password" type="password" required /></label>
-              <label>Password baru<input name="new_password" type="password" minLength={6} required /></label>
-              <label>Konfirmasi password baru<input name="confirm_password" type="password" minLength={6} required /></label>
-              <button className="btn primary"><Check size={16} /> Simpan password</button>
-            </form>
-          )}
-        </section>
-      ) : null}
-
-      <section className="panel account-shortcuts">
-        <PanelHead title="Navigasi cepat" badge="Akun" />
-        <div className="account-shortcut-grid">
-          {shortcuts.map(([Icon, label, copy, action]) => (
-            <button key={label} onClick={action}>
-              <Icon size={21} />
-              <strong>{label}</strong>
-              <span>{copy}</span>
+        <>
+          <section className="panel settings-panel">
+            <PanelHead title="Ubah data diri" badge="Profil" />
+            <button className="btn ghost" onClick={() => setShowProfileForm((v) => !v)}>
+              <Pencil size={16} /> {showProfileForm ? "Tutup form" : "Edit profil"}
             </button>
-          ))}
-        </div>
-      </section>
+            {showProfileForm && (
+              <form className="smart-form" style={{ marginTop: "12px" }} onSubmit={(e) => {
+                e.preventDefault();
+                const values = Object.fromEntries(new FormData(e.currentTarget));
+                onUpdateProfile(values);
+                setShowProfileForm(false);
+              }}>
+                <label>Nama lengkap<input name="full_name" type="text" defaultValue={profile?.full_name || ""} required /></label>
+                <button className="btn primary"><Check size={16} /> Simpan profil</button>
+              </form>
+            )}
+          </section>
 
-      {!demo ? (
-        <button className="btn primary account-logout" onClick={onLogout}>
-          <LogOut size={18} /> Keluar dari akun
-        </button>
+          <section className="panel settings-panel">
+            <PanelHead title="Ganti password" badge="Keamanan" />
+            <button className="btn ghost" onClick={() => setShowPasswordForm((v) => !v)}>
+              <ShieldCheck size={16} /> {showPasswordForm ? "Tutup form" : "Ganti password"}
+            </button>
+            {showPasswordForm && (
+              <form className="smart-form" style={{ marginTop: "12px" }} onSubmit={(e) => {
+                e.preventDefault();
+                const values = Object.fromEntries(new FormData(e.currentTarget));
+                if (values.new_password !== values.confirm_password) {
+                  alert("Password baru tidak cocok!");
+                  return;
+                }
+                onUpdatePassword(values);
+                setShowPasswordForm(false);
+              }}>
+                <label>Password lama<input name="old_password" type="password" required /></label>
+                <label>Password baru<input name="new_password" type="password" minLength={6} required /></label>
+                <label>Konfirmasi password baru<input name="confirm_password" type="password" minLength={6} required /></label>
+                <button className="btn primary"><Check size={16} /> Simpan password</button>
+              </form>
+            )}
+          </section>
+
+          <section className="panel settings-panel">
+            <PanelHead title="Keluar Akun" badge="Sesi" />
+            <button className="btn danger" style={{ width: "100%", justifyContent: "center", padding: "12px", borderRadius: "12px", background: "#ef4444", color: "white", fontWeight: "bold", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }} onClick={onLogout}>
+              <LogOut size={18} /> Logout
+            </button>
+          </section>
+        </>
       ) : null}
     </div>
   );
@@ -1513,28 +1494,8 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
 }
 
 function Transactions({ data, ui, setUi, demo, onTransaction, onDelete }) {
-  const categories = data.categories.filter((item) => item.type === ui.txType);
-
   return (
-    <div className="two-col">
-      <section className="panel form-panel">
-        <PanelHead title="Tambah transaksi" badge={ui.txType === "income" ? "Pemasukan" : "Pengeluaran"} />
-        <SmartForm
-          disabled={demo}
-          defaults={{ type: ui.txType, transaction_date: isoDate(new Date()) }}
-          beforeSubmit={(values) => ({ ...values, type: ui.txType })}
-          fields={[
-            ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]], (value) => setUi((current) => ({ ...current, txType: value }))],
-            ["amount", "money", "Nominal", "150000", undefined, "data-amount-input"],
-            ["wallet_id", "select", "Dompet", data.wallets.map((item) => [item.id, item.name])],
-            ["category_id", "select", "Kategori", categories.map((item) => [item.id, item.name])],
-            ["transaction_date", "date", "Tanggal"],
-            ["note", "text", "Catatan", "Makan siang"]
-          ]}
-          submitLabel="Catat"
-          onSubmit={onTransaction}
-        />
-      </section>
+    <div className="single-col">
       <section className="panel">
         <PanelHead title="Riwayat" badge={`${data.transactions.length} transaksi`} />
         <div className="stack">
@@ -2584,7 +2545,7 @@ function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
     <>
       <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, txModal: false }))} style={{ display: 'block' }} />
       <div className="panel tx-modal" style={{
-        position: "fixed", top: "15vh", left: "50%", transform: "translateX(-50%)", 
+        position: "fixed", top: "5vh", left: "50%", transform: "translateX(-50%)", 
         width: "90%", maxWidth: "420px", zIndex: 1000, 
         background: "var(--surface)", border: "1px solid var(--line-strong)",
         boxShadow: "var(--shadow-xl)"
