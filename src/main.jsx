@@ -1572,7 +1572,6 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
             />
             <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
           </form>
-          <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
 
           {ui.scanResult ? (
             <div className="scan-save-panel">
