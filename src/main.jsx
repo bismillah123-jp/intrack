@@ -1517,7 +1517,7 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
               onAdvisor(question);
               form.reset();
             }}>
-              <textarea name="question" disabled={!isPro} rows={1} placeholder="Tanya: budget mana yang bocor bulan ini?" />
+              <textarea name="question" disabled={!isPro} rows={1} placeholder="Budget mana yang bocor bulan ini?" />
               <button className="icon-btn send-btn" disabled={!isPro} aria-label="Kirim chat">
                 <SendHorizontal size={18} />
               </button>
