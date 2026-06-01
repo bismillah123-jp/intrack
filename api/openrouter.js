@@ -1,5 +1,5 @@
 const FREETHEAI_URL = "https://api.freetheai.xyz/v1/chat/completions";
-const MODEL = "agr/deepseek-v4-pro";
+const MODEL = "fee/kimi-k2.6";
 
 export async function callFreeTheAI({ prompt, imageUrl, system, context, origin }) {
   if (!process.env.FREETHEAI_API_KEY) {
