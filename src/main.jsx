@@ -178,6 +178,8 @@ const initialUi = {
   proTab: "chat",
   balanceHidden: false,
   txModal: false,
+  walletModal: false,
+  confirmPrompt: null,
   scanResult: null,
   advisor: [
     {
@@ -595,9 +597,16 @@ function App() {
     refreshData("Goal disimpan.");
   }
 
-  async function deleteRow(table, id, message) {
+  function deleteRow(table, id, message) {
     if (guardDemo()) return;
-    if (!window.confirm("Hapus data ini?")) return;
+    setUi((current) => ({ ...current, confirmPrompt: { table, id, message } }));
+  }
+
+  async function executeDelete() {
+    if (guardDemo() || !ui.confirmPrompt) return;
+    const { table, id, message } = ui.confirmPrompt;
+    setUi((current) => ({ ...current, confirmPrompt: null }));
+
     if (boot.backend === "fintrack") {
       const tableMap = {
         wallets: "fintrack_wallets",
@@ -795,13 +804,12 @@ function App() {
           onBudget={saveBudget}
           onGoal={saveGoal}
           onDelete={deleteRow}
-          onAdvisor={runAdvisor}
-          onReceipt={runReceipt}
-          onReport={runReport}
-          onUpdateProfile={updateProfile}
-          onUpdatePassword={updatePassword}
-          onCheckAlerts={checkFinanceAlerts}
+          onRunAI={runAI}
+          onRefresh={() => refreshData("Data disinkronkan.")}
         />
+        {ui.confirmPrompt && (
+          <ConfirmModal ui={ui} setUi={setUi} onConfirm={executeDelete} />
+        )}
       </ShellToast>
     );
   }
@@ -1454,23 +1462,10 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
   const edit = data.wallets.find((item) => item.id === ui.walletEditId);
 
   return (
-    <div className="two-col">
-      <section className="panel form-panel">
-        <PanelHead title={edit ? "Edit dompet" : "Tambah dompet"} badge={`${data.wallets.length} aktif`} />
-        <SmartForm
-          disabled={demo}
-          defaults={edit}
-          fields={[
-            ["id", "hidden"],
-            ["name", "text", "Nama dompet", "BCA Harian"],
-            ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
-            ["balance", "money", "Saldo", "0"],
-            ["color", "color", "Warna", "#0f766e"]
-          ]}
-          submitLabel={edit ? "Simpan" : "Tambah"}
-          onSubmit={onWallet}
-        />
-      </section>
+    <div className="single-col">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+        <button className="btn primary" onClick={() => setUi(c => ({ ...c, walletModal: true }))}>+ Tambah Dompet</button>
+      </div>
       <section className="cards-grid">
         {data.wallets.map((wallet) => (
           <article className="wallet-tile" key={wallet.id}>
@@ -1483,12 +1478,16 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
             </div>
             <strong>{money(wallet.balance)}</strong>
             <div className="tile-actions">
-              <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id }))}><Pencil size={16} /></button>
+              <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id, walletModal: true }))}><Pencil size={16} /></button>
               <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Dompet dihapus.")}><Trash2 size={16} /></button>
             </div>
           </article>
         ))}
       </section>
+
+      {ui.walletModal && (
+        <WalletModal edit={edit} ui={ui} setUi={setUi} demo={demo} backend={backend} onWallet={onWallet} />
+      )}
     </div>
   );
 }
@@ -2568,6 +2567,74 @@ function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
           submitLabel="Simpan Transaksi"
           onSubmit={onTransaction}
         />
+      </div>
+    </>
+  );
+}
+
+function WalletModal({ edit, ui, setUi, demo, backend, onWallet }) {
+  return (
+    <>
+      <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, walletModal: false, walletEditId: null }))} style={{ display: 'block' }} />
+      <div className="panel tx-modal" style={{
+        position: "fixed", top: "10vh", left: "50%", transform: "translateX(-50%)", 
+        width: "90%", maxWidth: "420px", zIndex: 1000, 
+        background: "var(--surface)", border: "1px solid var(--line-strong)",
+        boxShadow: "var(--shadow-xl)"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>{edit ? "Edit Dompet" : "Tambah Dompet"}</h3>
+          <button className="icon-btn" onClick={() => setUi(c => ({ ...c, walletModal: false, walletEditId: null }))}><X size={18} /></button>
+        </div>
+        <SmartForm
+          disabled={demo}
+          defaults={edit}
+          fields={[
+            ["id", "hidden"],
+            ["name", "text", "Nama dompet", "BCA Harian"],
+            ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
+            ["balance", "money", "Saldo", "0"],
+            ["color", "select", "Warna / Tema", [
+              ["#0f766e", "🟢 Teal (Default)"],
+              ["#2563eb", "🔵 Bank Biru (BCA/Mandiri)"],
+              ["#ea580c", "🟧 Bank Oranye (BNI)"],
+              ["#be185d", "🌸 Pink (Bank Jago)"],
+              ["#16a34a", "🟩 e-Wallet Hijau (GoPay/Grab)"],
+              ["#9333ea", "🟣 e-Wallet Ungu (OVO)"],
+              ["#0284c7", "🟦 e-Wallet Biru (DANA)"],
+              ["#ca8a04", "🟡 e-Wallet Kuning (ShopeePay)"],
+              ["#e11d48", "🔴 e-Wallet Merah (LinkAja)"],
+              ["#1e293b", "⬛ Hitam (Cash/Credit)"]
+            ]]
+          ]}
+          submitLabel={edit ? "Simpan Dompet" : "Tambah Dompet"}
+          onSubmit={(v) => {
+            onWallet(v);
+            setUi(c => ({ ...c, walletModal: false, walletEditId: null }));
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+function ConfirmModal({ ui, setUi, onConfirm }) {
+  return (
+    <>
+      <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, confirmPrompt: null }))} style={{ display: 'block', zIndex: 9999 }} />
+      <div className="panel tx-modal" style={{
+        position: "fixed", top: "30vh", left: "50%", transform: "translateX(-50%)", 
+        width: "90%", maxWidth: "320px", zIndex: 10000, 
+        background: "var(--surface)", border: "1px solid var(--line-strong)",
+        boxShadow: "var(--shadow-xl)", textAlign: "center", padding: "24px"
+      }}>
+        <Trash2 size={40} style={{ color: "#ef4444", marginBottom: "12px", display: "inline-block" }} />
+        <h3 style={{ margin: "0 0 8px 0", fontSize: "1.2rem", fontWeight: 700 }}>Hapus Data?</h3>
+        <p style={{ margin: "0 0 24px 0", color: "var(--ink-light)" }}>Tindakan ini tidak bisa dibatalkan.</p>
+        <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+          <button className="btn quiet" style={{ flex: 1 }} onClick={() => setUi(c => ({ ...c, confirmPrompt: null }))}>Batal</button>
+          <button className="btn danger" style={{ flex: 1, background: "#ef4444", color: "white", border: "none", padding: "12px", borderRadius: "12px", fontWeight: "bold", cursor: "pointer" }} onClick={onConfirm}>Ya, Hapus</button>
+        </div>
       </div>
     </>
   );
