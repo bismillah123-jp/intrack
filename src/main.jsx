@@ -2579,10 +2579,6 @@ function getGreeting(name) {
   return `Selamat ${time}, ${firstName} ✨`;
 }
 
-function isoDate(date) {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-}
-
 function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
   return (
     <>
