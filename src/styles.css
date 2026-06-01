@@ -929,6 +929,9 @@ img { display: block; max-width: 100%; }
 /* Mobile-only class */
 .mobile-only { display: none; }
 
+/* Desktop-hide utility: shown on mobile, hidden on desktop */
+.desktop-hide { display: none !important; }
+
 /* ── 7. DASHBOARD ─────────────────────────────────────────────── */
 
 .dashboard-home {
@@ -2217,9 +2220,13 @@ input[type="color"] {
     box-shadow: 0 12px 36px rgba(var(--accent-rgb), 0.40);
     transition: transform var(--ts), box-shadow var(--t);
   }
+  .mobile-dock .dock-add { transform: none; }
   .mobile-dock .dock-add:hover { transform: scale(1.06); }
   .mobile-dock .dock-add > span { width: 54px; height: 42px; background: transparent; }
   .mobile-dock .dock-add small { color: rgba(255,255,255,0.80); }
+
+  /* Show main-menu-panel on mobile only */
+  .desktop-hide { display: grid !important; }
 }
 
 /* ── SMALL MOBILE (≤ 560px) ── */
@@ -2719,8 +2726,13 @@ body::before {
 .balance-hero {
   border: 0;
   border-radius: 18px;
-  background: linear-gradient(135deg, #0f766e 0%, #115e59 48%, #0f172a 100%);
-  box-shadow: 0 24px 58px rgba(15, 118, 110, 0.22);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 90%, #000) 0%,
+    color-mix(in srgb, var(--accent) 55%, #000) 48%,
+    #0f172a 100%
+  );
+  box-shadow: 0 24px 58px rgba(var(--accent-rgb), 0.22);
 }
 
 .balance-hero::before {
@@ -2932,7 +2944,7 @@ textarea {
   }
 
   .mobile-dock small {
-    display: block;
+    display: none;
     font-size: 0.62rem;
     line-height: 1;
   }

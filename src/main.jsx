@@ -1168,7 +1168,7 @@ function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
         </div>
       </section>
 
-      <section className="panel main-menu-panel">
+      <section className="panel main-menu-panel desktop-hide">
         <div className="menu-title">
           <h3>Menu Utama</h3>
           <button className="btn quiet" onClick={() => go("app/account")}><Palette size={16} /> Ubah</button>
@@ -1918,7 +1918,6 @@ function AiOutput({ lines }) {
     <div className="ai-output">
       {safeLines.map((line, index) => (
         <article className="ai-result-card" key={index}>
-          <span>{String(index + 1).padStart(2, "0")}</span>
           <p>{cleanAiLine(line)}</p>
         </article>
       ))}
