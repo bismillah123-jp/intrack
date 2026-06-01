@@ -84,8 +84,14 @@ const NAV = [
   ["wallets", WalletCards, "Dompet"],
   ["transactions", ReceiptText, "Transaksi"],
   ["budgets", Ruler, "Budget"],
-  ["goals", Target, "Goals"],
-  ["pro", Sparkles, "Pro"]
+  ["goals", Target, "Goals"]
+];
+
+const NAV_AI = [
+  ["pro-chat", Bot, "AI Chat"],
+  ["pro-scan", ScanLine, "Scan Struk"],
+  ["pro-report", FileSearch, "Analisis"],
+  ["pro-health", Gauge, "Health"]
 ];
 
 const ACCENTS = [
@@ -111,6 +117,7 @@ const initialUi = {
   goalEditId: null,
   txType: "expense",
   toast: null,
+  toastType: "info",
   proTab: "chat",
   advisor: [
     {
@@ -119,7 +126,8 @@ const initialUi = {
     }
   ],
   receipt: [],
-  report: []
+  report: [],
+  financeAlerts: []
 };
 
 const PRO_PLAN = {
@@ -277,9 +285,34 @@ function App() {
     }
   }
 
-  function notify(message) {
-    setUi((current) => ({ ...current, toast: message }));
-    window.setTimeout(() => setUi((current) => ({ ...current, toast: null })), 3200);
+  function notify(message, type = "info") {
+    setUi((current) => ({ ...current, toast: message, toastType: type }));
+    window.setTimeout(() => setUi((current) => ({ ...current, toast: null })), 4000);
+  }
+
+  function checkFinanceAlerts(metricsData, budgetsData) {
+    const alerts = [];
+    if (metricsData.savingsRate < 10 && metricsData.monthlyIncome > 0) {
+      alerts.push({ type: "warning", message: `Saving rate kamu hanya ${metricsData.savingsRate}% — idealnya minimal 20% dari pemasukan.` });
+    }
+    if (metricsData.healthScore < 50) {
+      alerts.push({ type: "danger", message: `Financial health score ${metricsData.healthScore}/100 tergolong rendah. Periksa budget dan utang.` });
+    }
+    const overBudgets = budgetsData.filter((b) => b.percent > 100);
+    overBudgets.slice(0, 2).forEach((b) => {
+      alerts.push({ type: "danger", message: `Budget ${b.categoryName} sudah over ${Math.round(b.percent)}% — segera kurangi pengeluaran.` });
+    });
+    const nearBudgets = budgetsData.filter((b) => b.percent >= 80 && b.percent <= 100);
+    nearBudgets.slice(0, 2).forEach((b) => {
+      alerts.push({ type: "warning", message: `Budget ${b.categoryName} sudah ${Math.round(b.percent)}% — hampir habis.` });
+    });
+    if (metricsData.debt > metricsData.assets * 0.5 && metricsData.debt > 0) {
+      alerts.push({ type: "warning", message: `Utang kamu ${money(metricsData.debt)} cukup besar. Prioritaskan pelunasan.` });
+    }
+    if (metricsData.savingsRate >= 30 && metricsData.healthScore >= 75) {
+      alerts.push({ type: "success", message: `Kondisi keuangan kamu sehat! Saving rate ${metricsData.savingsRate}% dan score ${metricsData.healthScore}/100.` });
+    }
+    setUi((current) => ({ ...current, financeAlerts: alerts }));
   }
 
   function guardDemo() {
@@ -320,14 +353,15 @@ function App() {
 
   async function signInGoogle() {
     if (!boot.supabase) {
-      notify("Supabase belum dikonfigurasi. Isi config.js atau .env untuk mengaktifkan Google OAuth.");
+      notify("Supabase belum dikonfigurasi.", "warning");
       return;
     }
+    const redirectTo = window.location.origin + window.location.pathname + "#/app/dashboard";
     const { error } = await boot.supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin + window.location.pathname }
+      options: { redirectTo, queryParams: { access_type: "offline", prompt: "consent" } }
     });
-    if (error) notify(error.message);
+    if (error) notify(error.message, "danger");
   }
 
   async function updateProfile({ full_name, email }) {
@@ -541,7 +575,7 @@ function App() {
   function runAdvisor(question) {
     const userQuestion = String(question || "").trim() || "Analisis kondisi keuangan bulan ini dan beri 3 saran paling penting.";
     const loadingId = `loading-${Date.now()}`;
-    runOpenRouter({
+    runAI({
       slot: "advisor",
       prompt: userQuestion,
       system: "Kamu adalah AI financial advisor DompetRapi untuk pengguna Indonesia. Jawab dalam bahasa Indonesia natural, praktis, singkat, dan berbasis data. Hindari klaim kepastian investasi. Jangan pakai markdown tebal, tanda *** atau karakter China/Jepang/Korea.",
@@ -553,7 +587,7 @@ function App() {
           advisor: [
             ...normalizeChatMessages(current.advisor),
             { role: "user", text: userQuestion },
-            { id: loadingId, role: "assistant", text: "Sedang membaca data keuanganmu...", loading: true }
+            { id: loadingId, role: "assistant", text: "Membaca data keuanganmu...", loading: true }
           ]
         }));
       },
@@ -579,7 +613,7 @@ function App() {
   }
 
   function runReceipt(text, imageUrl) {
-    runOpenRouter({
+    runAI({
       slot: "receipt",
       prompt: text || "Baca struk dari gambar ini. Ekstrak item, total, dan sarankan kategori transaksi.",
       imageUrl,
@@ -590,7 +624,7 @@ function App() {
 
   function runReport(extraPrompt) {
     const focus = String(extraPrompt || "").trim();
-    runOpenRouter({
+    runAI({
       slot: "report",
       prompt: `Buat laporan analisis keuangan bulan ini. Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
       system: "Kamu adalah report analyzer DompetRapi. Buat laporan dalam bahasa Indonesia dengan kalimat pendek dan actionable. Jangan pakai markdown tebal, tanda *** atau karakter China/Jepang/Korea.",
@@ -598,13 +632,13 @@ function App() {
     });
   }
 
-  async function runOpenRouter({ slot, prompt, system, context, imageUrl, onStart, onSuccess, onError }) {
+  async function runAI({ slot, prompt, system, context, imageUrl, onStart, onSuccess, onError }) {
     if (onStart) {
       onStart();
     } else {
       setUi((current) => ({
         ...current,
-        [slot]: ["Menghubungi OpenRouter Kimi K2.6..."]
+        [slot]: ["Menghubungi AI..."]
       }));
     }
 
@@ -616,27 +650,27 @@ function App() {
       });
       const contentType = response.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {
-        throw new Error("Endpoint /api/openrouter belum tersedia di server lokal. Deploy ke Vercel atau jalankan dengan Vercel dev");
+        throw new Error("Jalankan lewat Vercel dev atau deploy ke Vercel.");
       }
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "OpenRouter gagal merespons.");
+      if (!response.ok) throw new Error(payload.error || "AI gagal merespons.");
       const lines = splitAiText(payload.text);
       if (onSuccess) {
         onSuccess(lines, payload);
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
-      logAi(slot, { lines, model: "moonshotai/kimi-k2.6:free" }, prompt);
+      logAi(slot, { lines, model: "agr/deepseek-v4-pro" }, prompt);
     } catch (error) {
-      const reason = (error.message || "OpenRouter belum bisa dihubungi").replace(/[.]+$/, "");
-      const fallback = `AI belum bisa aktif: ${reason}. Set OPENROUTER_API_KEY di environment Vercel atau jalankan lewat server yang punya /api/openrouter.`;
+      const reason = (error.message || "AI tidak bisa dihubungi").replace(/[.]+$/, "");
+      const fallback = `AI belum aktif: ${reason}.`;
       const lines = splitAiText(fallback);
       if (onError) {
         onError(lines);
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
-      notify(fallback);
+      notify(fallback, "warning");
     }
   }
 
@@ -644,7 +678,7 @@ function App() {
 
   if (ui.route === "login") {
     return (
-      <ShellToast message={ui.toast}>
+      <ShellToast message={ui.toast} toastType={ui.toastType}>
         <AuthView
           demo={boot.demo}
           theme={theme}
@@ -665,7 +699,7 @@ function App() {
     }
 
     return (
-      <ShellToast message={ui.toast}>
+      <ShellToast message={ui.toast} toastType={ui.toastType}>
         <Workspace
           page={currentPage}
           ui={ui}
@@ -691,13 +725,14 @@ function App() {
           onReport={runReport}
           onUpdateProfile={updateProfile}
           onUpdatePassword={updatePassword}
+          onCheckAlerts={checkFinanceAlerts}
         />
       </ShellToast>
     );
   }
 
   return (
-    <ShellToast message={ui.toast}>
+    <ShellToast message={ui.toast} toastType={ui.toastType}>
       <AuthView
         demo={boot.demo}
         theme={theme}
@@ -720,23 +755,23 @@ function Splash() {
   );
 }
 
-function ShellToast({ children, message }) {
+function ShellToast({ children, message, toastType }) {
   return (
     <>
       {children}
-      {message ? <div className="toast">{message}</div> : null}
+      {message ? <div className={`toast toast-${toastType || "info"}`}>{message}</div> : null}
     </>
   );
 }
 
 function Landing({ theme, setTheme }) {
   const featureItems = [
-    [WalletCards, "Semua dompet", "Bank, e-wallet, cash, kartu kredit, PayLater, dan investasi dalam satu workspace."],
-    [Ruler, "Budget presisi", "Fixed atau percentage budgeting dengan warning saat kategori mulai panas."],
-    [Bot, "AI Pro aktif", "Advisor, scanner struk, dan report analyzer memakai OpenRouter Kimi K2.6."],
-    [LineChart, "Laporan jernih", "Tren pemasukan, pengeluaran, net worth, dan kategori terbesar langsung terbaca."],
-    [Target, "Goals aktif", "Target nominal, deadline, dan progress real-time untuk rencana nabung."],
-    [ShieldCheck, "Manual-first", "Tidak meminta password bank. Saldo dan transaksi dicatat manual oleh pengguna."]
+    [WalletCards, "Semua dompet", "Bank, e-wallet, cash, kartu kredit, PayLater, dan investasi."],
+    [Ruler, "Budget presisi", "Fixed atau percentage budgeting dengan peringatan saat mendekati limit."],
+    [Bot, "AI Pro", "Chat advisor, scanner struk, dan analisis laporan dengan AI DeepSeek V4."],
+    [LineChart, "Laporan", "Tren pemasukan, pengeluaran, dan net worth."],
+    [Target, "Goals", "Target nominal dengan deadline dan progress real-time."],
+    [ShieldCheck, "Manual-first", "Tidak meminta password bank. Semua dicatat manual."]
   ];
 
   return (
@@ -754,11 +789,10 @@ function Landing({ theme, setTheme }) {
 
       <section className="hero-modern">
         <div className="hero-copy">
-          <span className="pill">Personal finance SaaS</span>
+          <span className="pill">Personal finance</span>
           <h1>DompetRapi</h1>
           <p>
-            Workspace keuangan pribadi yang bersih, cepat, dan siap dipakai untuk mencatat dompet,
-            transaksi, budget, goals, laporan, dan AI Pro yang terhubung ke OpenRouter.
+            Workspace keuangan pribadi dengan AI Pro — chat advisor, scan struk, analisis laporan, dan health score.
           </p>
           <div className="hero-actions">
             <button className="btn primary" onClick={() => go("app/dashboard")}>
@@ -779,17 +813,17 @@ function Landing({ theme, setTheme }) {
           <span>Tidak ada sync rekening otomatis</span>
         </div>
         <div>
-          <strong>Supabase-ready</strong>
-          <span>Auth, RLS, dan database schema tersedia</span>
+          <strong>AI DeepSeek V4</strong>
+          <span>Chat, scan struk, dan analisis</span>
         </div>
         <div>
-          <strong>React + Vite</strong>
-          <span>Framework modern tanpa CDN app code</span>
+          <strong>Supabase-ready</strong>
+          <span>Auth dan database siap pakai</span>
         </div>
       </section>
 
       <section id="fitur" className="section">
-        <SectionIntro label="Fitur" title="Kelola uang tanpa tampilan yang berisik." copy="Setiap halaman dibuat untuk dipindai cepat, bukan untuk membuat pengguna tersesat di banyak dekorasi." />
+        <SectionIntro label="Fitur" title="Kelola uang tanpa tampilan yang berisik." copy="Setiap halaman dibuat untuk dipindai cepat." />
         <div className="feature-grid">
           {featureItems.map(([Icon, title, copy]) => (
             <article className="feature-tile" key={title}>
@@ -802,18 +836,18 @@ function Landing({ theme, setTheme }) {
       </section>
 
       <section id="harga" className="section split-section">
-        <SectionIntro label="Plan" title="Satu plan saja: Pro." copy="Semua fitur langsung aktif: dashboard, budget, goals, OpenRouter AI, dan scanner struk." />
+        <SectionIntro label="Plan" title="Satu plan saja: Pro." copy="Semua fitur aktif setelah setup Supabase." />
         <div className="pricing-modern">
-          <PlanCard featured name={PRO_PLAN.name} price={PRO_PLAN.price} items={["Dompet dan transaksi tanpa batas", "Budget, goals, dan health score", "AI advisor OpenRouter", "Scan struk teks atau image URL", "Report analyzer AI"]} />
+          <PlanCard featured name={PRO_PLAN.name} price={PRO_PLAN.price} items={["Dompet dan transaksi tanpa batas", "Budget, goals, dan health score", "AI Chat dengan DeepSeek V4", "Scan struk dengan AI", "Analisis laporan AI"]} />
         </div>
       </section>
 
       <section id="faq" className="section faq-modern">
-        <SectionIntro label="FAQ" title="Hal penting sebelum dipakai." copy="Versi ini fokus pada MVP SaaS yang aman dan mudah dikembangkan." />
+        <SectionIntro label="FAQ" title="Pertanyaan umum." copy="" />
         {[
-          ["Apakah sync otomatis ke bank?", "Tidak. Versi awal memakai input manual dan tidak meminta kredensial bank."],
-          ["Apakah AI sudah memakai API sungguhan?", "Ya. AI Pro memanggil OpenRouter lewat endpoint serverless /api/openrouter."],
-          ["Bisa disambungkan ke Supabase?", "Bisa. Jalankan schema.sql, copy config.example.js ke config.js, lalu isi Supabase URL dan anon key."]
+          ["Apakah sync otomatis ke bank?", "Tidak. Input manual, tanpa kredensial bank."],
+          ["AI pakai model apa?", "AI Pro memakai DeepSeek V4 via FreeTheAI."],
+          ["Cara sambungkan ke Supabase?", "Jalankan schema.sql, copy config.example.js ke config.js, lalu isi URL dan anon key."]
         ].map(([q, a]) => (
           <details key={q}>
             <summary>{q}</summary>
@@ -927,18 +961,29 @@ function Workspace(props) {
     backend,
     onLogout,
     onUpdateProfile,
-    onUpdatePassword
+    onUpdatePassword,
+    onCheckAlerts
   } = props;
   const [mobileNav, setMobileNav] = useState(false);
 
+  useEffect(() => {
+    if (onCheckAlerts && metrics && budgets) {
+      onCheckAlerts(metrics, budgets);
+    }
+  }, [metrics, budgets]);
+
+  const isProPage = page.startsWith("pro");
   const titleMap = {
-    dashboard: ["Dashboard", "Angka penting bulan ini dalam satu layar."],
-    wallets: ["Dompet", "Saldo manual dari semua tempat uang."],
-    transactions: ["Transaksi", "Catat pemasukan dan pengeluaran harian."],
-    budgets: ["Budget", "Pantau limit kategori bulan berjalan."],
-    goals: ["Goals", "Target tabungan dengan deadline yang jelas."],
-    pro: ["AI Pro", "Health score, advisor, scanner struk, dan report analyzer OpenRouter."],
-    account: ["Akun", "Kelola profil, tema, dan preferensi aplikasi."]
+    dashboard: ["Dashboard", "Ringkasan bulan ini."],
+    wallets: ["Dompet", "Saldo dari semua tempat."],
+    transactions: ["Transaksi", "Catat pemasukan dan pengeluaran."],
+    budgets: ["Budget", "Pantau limit kategori."],
+    goals: ["Goals", "Target tabungan."],
+    "pro-chat": ["AI Chat", "Tanya advisor AI soal keuanganmu."],
+    "pro-scan": ["Scan Struk", "Upload struk untuk dianalisis AI."],
+    "pro-report": ["Analisis", "Laporan keuangan bulan ini."],
+    "pro-health": ["Health Score", "Skor kesehatan finansialmu."],
+    account: ["Akun", "Profil dan preferensi."]
   };
   const [title, subtitle] = titleMap[page] || titleMap.dashboard;
 
@@ -959,10 +1004,16 @@ function Workspace(props) {
               {label}
             </button>
           ))}
+          <div className="side-nav-group-label">AI Pro</div>
+          {NAV_AI.map(([key, Icon, label]) => (
+            <button key={key} className={`nav-ai-item ${key === page ? "active" : ""}`} onClick={() => go(`app/${key}`)}>
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
         </nav>
         <div className="account-card">
           <span className={`pill ${plan === "pro" ? "gold" : ""}`}>{demo ? "Demo Pro" : plan}</span>
-          <span className="mini-badge">{demo ? "Demo data" : backend === "fintrack" ? "Supabase fintrack" : "Supabase app"}</span>
           <strong>{profile?.full_name || "Pengguna DompetRapi"}</strong>
           <ThemeControls theme={theme} setTheme={setTheme} />
           {!demo ? (
@@ -987,8 +1038,19 @@ function Workspace(props) {
         {demo ? (
           <div className="demo-bar">
             <BadgeCheck size={18} />
-            <span>Demo mode read-only. Tambahkan config.js untuk menyimpan data ke Supabase.</span>
+            <span>Demo mode. Data tidak disimpan.</span>
             <button className="btn quiet" onClick={() => go("")}>Landing</button>
+          </div>
+        ) : null}
+
+        {ui.financeAlerts?.length > 0 && page === "dashboard" ? (
+          <div className="finance-alerts">
+            {ui.financeAlerts.map((alert, index) => (
+              <div key={index} className={`finance-alert finance-alert-${alert.type}`}>
+                <span>{alert.type === "danger" ? "⚠️" : alert.type === "warning" ? "💡" : "✅"}</span>
+                <p>{alert.message}</p>
+              </div>
+            ))}
           </div>
         ) : null}
 
@@ -1008,7 +1070,7 @@ function Workspace(props) {
         {page === "transactions" && <Transactions {...props} />}
         {page === "budgets" && <Budgets {...props} />}
         {page === "goals" && <Goals {...props} />}
-        {page === "pro" && <ProLab {...props} />}
+        {isProPage && <ProLab {...props} page={page} />}
         {page === "account" && <AccountPanel {...props} />}
       </main>
       <MobileBottomNav page={page} />
@@ -1027,11 +1089,12 @@ function openTransactionComposer() {
 }
 
 function MobileBottomNav({ page }) {
+  const isAiPage = page.startsWith("pro");
   const items = [
     ["dashboard", LayoutDashboard, "Dashboard"],
-    ["wallets", WalletCards, "Dompet"],
+    ["budgets", Ruler, "Budget"],
     ["add", Plus, "Tambah"],
-    ["transactions", ReceiptText, "Transaksi"],
+    ["pro-chat", Bot, "AI Chat"],
     ["account", UserRound, "Akun"]
   ];
 
@@ -1039,7 +1102,7 @@ function MobileBottomNav({ page }) {
     <nav className="mobile-dock" aria-label="Navigasi utama mobile">
       {items.map(([key, Icon, label]) => {
         const isAdd = key === "add";
-        const active = key === page || (key === "wallets" && page === "wallets");
+        const active = key === page;
         return (
           <button
             key={key}
@@ -1071,13 +1134,13 @@ function Dashboard({ data, budgets, metrics, theme, setUi }) {
   const latestTransactions = data.transactions.slice(0, 5);
   const menuItems = [
     [Ruler, "Budget", "Limit kategori", () => go("app/budgets")],
-    [ScanLine, "Scanner", "Scan struk", () => openProTab(setUi, "receipt")],
+    [ScanLine, "Scan Struk", "AI scanner", () => go("app/pro-scan")],
     [Target, "Goals", "Target nabung", () => go("app/goals")],
     [WalletCards, "Aset", "Semua saldo", () => go("app/wallets")],
     [CreditCard, "Utang", "Kartu & PayLater", () => go("app/wallets")],
     [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")],
-    [Bot, "AI Advisor", "Chat personal", () => openProTab(setUi, "chat")],
-    [BarChart3, "Laporan", "Analisis AI", () => openProTab(setUi, "report")]
+    [Bot, "AI Chat", "Advisor personal", () => go("app/pro-chat")],
+    [BarChart3, "Analisis", "Laporan AI", () => go("app/pro-report")]
   ];
 
   return (
@@ -1182,8 +1245,8 @@ function Dashboard({ data, budgets, metrics, theme, setUi }) {
 }
 
 function openProTab(setUi, tab) {
-  setUi((current) => ({ ...current, proTab: tab }));
-  go("app/pro");
+  const tabMap = { chat: "pro-chat", receipt: "pro-scan", report: "pro-report", health: "pro-health" };
+  go(`app/${tabMap[tab] || "pro-chat"}`);
 }
 
 function InsightCard({ icon: Icon, label, value, copy, tone }) {
@@ -1462,21 +1525,11 @@ function Goals({ data, ui, setUi, demo, onGoal, onDelete }) {
   );
 }
 
-function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onReport }) {
-  const activeTab = ui.proTab || "chat";
+function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onReport, page }) {
+  const activeTab = page === "pro-scan" ? "receipt" : page === "pro-report" ? "report" : page === "pro-health" ? "health" : "chat";
   const [receiptDraft, setReceiptDraft] = useState({ text: "", imageUrl: "", imageData: "", imageName: "" });
   const [reportPrompt, setReportPrompt] = useState("");
   const chatMessages = normalizeChatMessages(ui.advisor);
-  const tabs = [
-    ["chat", Bot, "Chat"],
-    ["receipt", ScanLine, "Scan Struk"],
-    ["report", FileSearch, "Analisis"],
-    ["health", Gauge, "Health"]
-  ];
-
-  function switchTab(tab) {
-    setUi((current) => ({ ...current, proTab: tab }));
-  }
 
   function handleReceiptImage(event) {
     const file = event.target.files?.[0];
@@ -1499,186 +1552,150 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
   }
 
   return (
-    <div className="pro-lab">
-      <section className="pro-command">
-        <div>
-          <span className="mini-badge gold">AI Pro aktif</span>
-          <h3>AI keuangan yang terasa seperti ngobrol.</h3>
-          <p>Chat, scan struk, dan analisis laporan sekarang dipisah biar lebih fokus dan enak dipakai di HP.</p>
-        </div>
-        <div className="pro-command-stats" aria-label="Ringkasan AI Pro">
-          <span><Gauge size={16} /> {metrics.healthScore}/100</span>
-          <span><CircleDollarSign size={16} /> {metrics.savingsRate}% saving</span>
-          <span><Activity size={16} /> {data.goals.length} goals</span>
-        </div>
-      </section>
-
-      <nav className="pro-tabs" aria-label="Navigasi AI Pro">
-        {tabs.map(([key, Icon, label]) => (
-          <button key={key} className={activeTab === key ? "active" : ""} onClick={() => switchTab(key)}>
-            <Icon size={18} />
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="pro-grid">
-        <aside className="pro-side panel">
-          <PanelHead title="Financial health" badge={isPro ? "Pro" : "Locked"} />
-          <div className="score-orbit compact" style={{ "--score": `${metrics.healthScore}%` }}>
-            <strong>{metrics.healthScore}</strong>
-            <span>score</span>
-          </div>
-          <div className="health-list modern">
-            <span><CircleDollarSign size={16} /> Savings rate {metrics.savingsRate}%</span>
-            <span><CreditCard size={16} /> Debt {money(metrics.debt)}</span>
-            <span><Activity size={16} /> {data.goals.length} goals aktif</span>
-          </div>
-          <div className="ai-mini-stack">
-            <button className="btn quiet" onClick={() => switchTab("chat")}><Bot size={16} /> Buka chat</button>
-            <button className="btn quiet" onClick={() => switchTab("receipt")}><ScanLine size={16} /> Scan struk</button>
-          </div>
-        </aside>
-
-        <section className="pro-stage">
-          {activeTab === "chat" ? (
-            <section className={`ai-panel chat-panel ${!isPro ? "locked-panel" : ""}`}>
-              <div className="chat-window">
-                <div className="chat-top">
-                  <div className="chat-avatar"><Bot size={19} /></div>
-                  <div>
-                    <strong>DompetRapi Advisor</strong>
-                    <span>Online untuk bantu baca cashflow</span>
-                  </div>
-                  <span className="mini-badge">Chat</span>
-                </div>
-                <div className="chat-thread">
-                  {chatMessages.map((message, index) => <ChatBubble key={message.id || `${message.role}-${index}`} message={message} />)}
-                </div>
-                <form className="chat-composer" onSubmit={(event) => {
-                  event.preventDefault();
-                  const form = event.currentTarget;
-                  const question = new FormData(form).get("question");
-                  onAdvisor(question);
-                  form.reset();
-                }}>
-                  <textarea name="question" disabled={!isPro} rows={1} placeholder="Tanya: budget mana yang bocor bulan ini?" />
-                  <button className="icon-btn send-btn" disabled={!isPro} aria-label="Kirim chat">
-                    <SendHorizontal size={18} />
-                  </button>
-                </form>
+    <div className="pro-lab-single">
+      {activeTab === "chat" ? (
+        <section className={`ai-panel chat-panel ${!isPro ? "locked-panel" : ""}`}>
+          <div className="chat-window">
+            <div className="chat-top">
+              <div className="chat-avatar"><Bot size={19} /></div>
+              <div>
+                <strong>DompetRapi AI</strong>
+                <span className="mini-badge gold">DeepSeek V4</span>
               </div>
-            </section>
-          ) : null}
-
-          {activeTab === "receipt" ? (
-            <section className={`panel ai-panel receipt-panel ${!isPro ? "locked-panel" : ""}`}>
-              <PanelHead title="Receipt scanner" badge="Upload atau kamera" />
-              <form onSubmit={(event) => {
-                event.preventDefault();
-                const image = receiptDraft.imageData || receiptDraft.imageUrl;
-                onReceipt(receiptDraft.text, image);
-              }}>
-                <div className="capture-grid">
-                  <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
-                    <input type="file" accept="image/*" disabled={!isPro} onChange={handleReceiptImage} />
-                    <ImageUp size={22} />
-                    <strong>Upload gambar</strong>
-                    <span>PNG atau JPG struk</span>
-                  </label>
-                  <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
-                    <input type="file" accept="image/*" capture="environment" disabled={!isPro} onChange={handleReceiptImage} />
-                    <Camera size={22} />
-                    <strong>Ambil foto</strong>
-                    <span>Buka kamera HP</span>
-                  </label>
-                </div>
-
-                {receiptDraft.imageData ? (
-                  <div className="receipt-preview">
-                    <img src={receiptDraft.imageData} alt="Preview struk" />
-                    <div>
-                      <strong>{receiptDraft.imageName || "Struk siap discan"}</strong>
-                      <span>Gambar akan dikirim ke AI saat scan.</span>
-                      <button type="button" className="btn quiet" onClick={clearReceiptImage}>Hapus gambar</button>
-                    </div>
-                  </div>
-                ) : null}
-
-                <textarea
-                  value={receiptDraft.text}
-                  onChange={(event) => setReceiptDraft((current) => ({ ...current, text: event.target.value }))}
-                  disabled={!isPro}
-                  placeholder={"Tambahkan catatan kalau perlu:\nKopi 28000\nRoti 22000\nTotal 50000"}
-                />
-                <input
-                  value={receiptDraft.imageUrl}
-                  onChange={(event) => setReceiptDraft((current) => ({ ...current, imageUrl: event.target.value, imageData: "", imageName: "" }))}
-                  name="image_url"
-                  type="url"
-                  disabled={!isPro}
-                  placeholder="Atau tempel URL gambar struk"
-                />
-                <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
-              </form>
-              <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
-            </section>
-          ) : null}
-
-          {activeTab === "report" ? (
-            <section className={`panel ai-panel report-panel ${!isPro ? "locked-panel" : ""}`}>
-              <PanelHead title="Report analyzer" badge="Insight bulanan" />
-              <div className="report-kpis">
-                <div><span>Pengeluaran</span><strong>{money(metrics.monthlyExpense)}</strong></div>
-                <div><span>Pemasukan</span><strong>{money(metrics.monthlyIncome)}</strong></div>
-                <div><span>Net worth</span><strong>{money(metrics.netWorth)}</strong></div>
-              </div>
-              <form onSubmit={(event) => {
-                event.preventDefault();
-                onReport(reportPrompt);
-              }}>
-                <textarea
-                  value={reportPrompt}
-                  onChange={(event) => setReportPrompt(event.target.value)}
-                  disabled={!isPro}
-                  placeholder="Fokus laporan, misalnya: cari pengeluaran yang paling perlu dipangkas dan target saving bulan depan."
-                />
-                <button className="btn primary" disabled={!isPro}><FileSearch size={18} /> Buat analisis AI</button>
-              </form>
-              <AiOutput lines={ui.report} variant="report" />
-            </section>
-          ) : null}
-
-          {activeTab === "health" ? (
-            <section className="panel ai-panel health-deep-panel">
-              <PanelHead title="Health detail" badge="Score 0-100" />
-              <div className="health-detail-grid">
-                <div className="health-detail-card">
-                  <Gauge size={20} />
-                  <span>Skor</span>
-                  <strong>{metrics.healthScore}/100</strong>
-                </div>
-                <div className="health-detail-card">
-                  <CircleDollarSign size={20} />
-                  <span>Savings rate</span>
-                  <strong>{metrics.savingsRate}%</strong>
-                </div>
-                <div className="health-detail-card">
-                  <CreditCard size={20} />
-                  <span>Utang</span>
-                  <strong>{money(metrics.debt)}</strong>
-                </div>
-              </div>
-              <button className="btn primary" onClick={() => {
-                switchTab("chat");
-                onAdvisor("Jelaskan financial health score saya dan beri tiga langkah paling realistis untuk naik level.");
-              }}>
-                <Bot size={18} /> Bahas score di chat
+            </div>
+            <div className="chat-thread">
+              {chatMessages.map((message, index) => <ChatBubble key={message.id || `${message.role}-${index}`} message={message} />)}
+            </div>
+            <form className="chat-composer" onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const question = new FormData(form).get("question");
+              onAdvisor(question);
+              form.reset();
+            }}>
+              <textarea name="question" disabled={!isPro} rows={1} placeholder="Tanya: budget mana yang bocor bulan ini?" />
+              <button className="icon-btn send-btn" disabled={!isPro} aria-label="Kirim chat">
+                <SendHorizontal size={18} />
               </button>
-            </section>
-          ) : null}
+            </form>
+          </div>
         </section>
-      </div>
+      ) : null}
+
+      {activeTab === "receipt" ? (
+        <section className={`panel ai-panel receipt-panel ${!isPro ? "locked-panel" : ""}`}>
+          <PanelHead title="Scan Struk" badge="AI Scanner" />
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const image = receiptDraft.imageData || receiptDraft.imageUrl;
+            onReceipt(receiptDraft.text, image);
+          }}>
+            <div className="capture-grid">
+              <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
+                <input type="file" accept="image/*" disabled={!isPro} onChange={handleReceiptImage} />
+                <ImageUp size={22} />
+                <strong>Upload gambar</strong>
+                <span>PNG atau JPG struk</span>
+              </label>
+              <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
+                <input type="file" accept="image/*" capture="environment" disabled={!isPro} onChange={handleReceiptImage} />
+                <Camera size={22} />
+                <strong>Ambil foto</strong>
+                <span>Kamera HP</span>
+              </label>
+            </div>
+
+            {receiptDraft.imageData ? (
+              <div className="receipt-preview">
+                <img src={receiptDraft.imageData} alt="Preview struk" />
+                <div>
+                  <strong>{receiptDraft.imageName || "Struk siap discan"}</strong>
+                  <button type="button" className="btn quiet" onClick={clearReceiptImage}>Hapus</button>
+                </div>
+              </div>
+            ) : null}
+
+            <textarea
+              value={receiptDraft.text}
+              onChange={(event) => setReceiptDraft((current) => ({ ...current, text: event.target.value }))}
+              disabled={!isPro}
+              placeholder={"Catatan tambahan:\nKopi 28000\nRoti 22000"}
+            />
+            <input
+              value={receiptDraft.imageUrl}
+              onChange={(event) => setReceiptDraft((current) => ({ ...current, imageUrl: event.target.value, imageData: "", imageName: "" }))}
+              name="image_url"
+              type="url"
+              disabled={!isPro}
+              placeholder="Atau URL gambar struk"
+            />
+            <button className="btn primary" disabled={!isPro}><ScanLine size={18} /> Scan dengan AI</button>
+          </form>
+          <AiOutput lines={Array.isArray(ui.receipt) ? ui.receipt : ui.receipt ? [ui.receipt] : []} />
+        </section>
+      ) : null}
+
+      {activeTab === "report" ? (
+        <section className={`panel ai-panel report-panel ${!isPro ? "locked-panel" : ""}`}>
+          <PanelHead title="Analisis Keuangan" badge="AI Report" />
+          <div className="report-kpis">
+            <div><span>Pengeluaran</span><strong>{money(metrics.monthlyExpense)}</strong></div>
+            <div><span>Pemasukan</span><strong>{money(metrics.monthlyIncome)}</strong></div>
+            <div><span>Net worth</span><strong>{money(metrics.netWorth)}</strong></div>
+          </div>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            onReport(reportPrompt);
+          }}>
+            <textarea
+              value={reportPrompt}
+              onChange={(event) => setReportPrompt(event.target.value)}
+              disabled={!isPro}
+              placeholder="Fokus laporan, misalnya: pengeluaran yang perlu dipangkas."
+            />
+            <button className="btn primary" disabled={!isPro}><FileSearch size={18} /> Buat analisis AI</button>
+          </form>
+          <AiOutput lines={ui.report} variant="report" />
+        </section>
+      ) : null}
+
+      {activeTab === "health" ? (
+        <section className="panel ai-panel health-deep-panel">
+          <PanelHead title="Financial Health" badge="Score 0-100" />
+          <div className="score-orbit" style={{ "--score": `${metrics.healthScore}%` }}>
+            <strong>{metrics.healthScore}</strong>
+            <span>/ 100</span>
+          </div>
+          <div className="health-detail-grid">
+            <div className="health-detail-card">
+              <Gauge size={20} />
+              <span>Skor</span>
+              <strong>{metrics.healthScore}/100</strong>
+            </div>
+            <div className="health-detail-card">
+              <CircleDollarSign size={20} />
+              <span>Savings rate</span>
+              <strong>{metrics.savingsRate}%</strong>
+            </div>
+            <div className="health-detail-card">
+              <CreditCard size={20} />
+              <span>Utang</span>
+              <strong>{money(metrics.debt)}</strong>
+            </div>
+            <div className="health-detail-card">
+              <Activity size={20} />
+              <span>Goals aktif</span>
+              <strong>{data.goals.length}</strong>
+            </div>
+          </div>
+          <button className="btn primary" onClick={() => {
+            go("app/pro-chat");
+            onAdvisor("Jelaskan financial health score saya dan beri tiga langkah paling realistis untuk naik level.");
+          }}>
+            <Bot size={18} /> Bahas di AI Chat
+          </button>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1736,11 +1753,11 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
     <main className="auth-view">
       <section>
         <Brand />
-        <h1>{demo ? "Demo mode aktif." : "Masuk ke workspace keuanganmu."}</h1>
+        <h1>{demo ? "Demo mode." : "Masuk ke workspace keuanganmu."}</h1>
         <p>
           {demo
-            ? "Supabase belum dikonfigurasi, jadi app berjalan dengan data contoh read-only."
-            : "Auth memakai Supabase. Data finansial dipisahkan per user lewat RLS."}
+            ? "App berjalan dengan data contoh. Isi config.js untuk mengaktifkan penyimpanan."
+            : "Login dengan email atau Google. Data dipisah per user."}
         </p>
         <div className="auth-actions">
           <button className="btn primary" onClick={() => go("app/dashboard")}>Buka dashboard</button>
@@ -1752,8 +1769,24 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
           <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Login</button>
           <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Register</button>
         </div>
-        <span className={demo ? "pill" : "pill gold"}>{demo ? "Supabase belum aktif" : "Supabase connected"}</span>
+        <span className={demo ? "pill" : "pill gold"}>{demo ? "Demo" : "Supabase aktif"}</span>
         <h2>{mode === "login" ? "Selamat datang lagi" : "Buat akun baru"}</h2>
+        <button
+          className="btn google-btn"
+          disabled={demo}
+          onClick={onGoogle}
+          type="button"
+          id="btn-google-login"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Lanjutkan dengan Google
+        </button>
+        <div className="auth-divider"><span>atau</span></div>
         <form onSubmit={(event) => {
           event.preventDefault();
           const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -1766,16 +1799,6 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
           {!demo && <Turnstile sitekey="0x4AAAAAADaD7d8YIW881-0I" onVerify={setCaptchaToken} />}
           <button className="btn primary" disabled={demo || (!demo && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
         </form>
-        <button className="btn ghost" disabled={demo} onClick={onGoogle} style={{ gap: "10px" }}>
-          <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-          </svg>
-          Lanjutkan dengan Google
-        </button>
-        {demo ? <p className="auth-hint">Copy config.example.js ke config.js atau isi .env supaya login/register aktif.</p> : null}
       </section>
     </main>
   );

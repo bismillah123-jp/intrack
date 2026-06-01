@@ -1,9 +1,9 @@
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "moonshotai/kimi-k2.6:free";
+const FREETHEAI_URL = "https://api.freetheai.xyz/v1/chat/completions";
+const MODEL = "agr/deepseek-v4-pro";
 
-export async function callOpenRouter({ prompt, imageUrl, system, context, origin }) {
-  if (!process.env.OPENROUTER_API_KEY) {
-    const error = new Error("OPENROUTER_API_KEY belum diset di environment server.");
+export async function callFreeTheAI({ prompt, imageUrl, system, context, origin }) {
+  if (!process.env.FREETHEAI_API_KEY) {
+    const error = new Error("FREETHEAI_API_KEY belum diset di environment server.");
     error.statusCode = 500;
     throw error;
   }
@@ -28,13 +28,11 @@ export async function callOpenRouter({ prompt, imageUrl, system, context, origin
     });
   }
 
-  const response = await fetch(OPENROUTER_URL, {
+  const response = await fetch(FREETHEAI_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "HTTP-Referer": origin || "http://localhost:8787",
-      "X-Title": "DompetRapi"
+      "Authorization": `Bearer ${process.env.FREETHEAI_API_KEY}`
     },
     body: JSON.stringify({
       model: MODEL,
@@ -45,7 +43,7 @@ export async function callOpenRouter({ prompt, imageUrl, system, context, origin
         },
         {
           role: "user",
-          content: userContent
+          content: imageUrl ? userContent : userContent[0].text
         }
       ]
     })
@@ -53,7 +51,7 @@ export async function callOpenRouter({ prompt, imageUrl, system, context, origin
 
   const data = await response.json();
   if (!response.ok) {
-    const error = new Error(data?.error?.message || "OpenRouter request gagal.");
+    const error = new Error(data?.error?.message || "FreeTheAI request gagal.");
     error.statusCode = response.status;
     throw error;
   }
@@ -71,7 +69,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const result = await callOpenRouter({
+    const result = await callFreeTheAI({
       ...(req.body || {}),
       origin: req.headers.origin
     });

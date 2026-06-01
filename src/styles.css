@@ -2267,3 +2267,228 @@ input[type="color"] {
   .workspace-main { padding: 16px 12px calc(98px + env(safe-area-inset-bottom)); }
   .mobile-header { margin: -28px -12px 18px; }
 }
+
+/* ── NEW UI ELEMENTS ── */
+
+/* Finance Alerts */
+.finance-alerts {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+  animation: rise-in 0.4s ease both;
+}
+
+.finance-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: var(--r);
+  padding: 12px 16px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 1.5;
+  border: 1px solid;
+}
+
+.finance-alert-danger {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.22);
+  color: #b91c1c;
+}
+[data-theme="dark"] .finance-alert-danger {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #fca5a5;
+}
+
+.finance-alert-warning {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #92400e;
+}
+[data-theme="dark"] .finance-alert-warning {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #fbbf24;
+}
+
+.finance-alert-success {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.22);
+  color: #065f46;
+}
+[data-theme="dark"] .finance-alert-success {
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #6ee7b7;
+}
+
+.finance-alert p { margin: 0; flex: 1; }
+.finance-alert span { font-size: 1.1rem; flex-shrink: 0; }
+
+/* Toast types */
+.toast-info {
+  background: #0c0e1a;
+  color: #e4e8f6;
+}
+.toast-warning {
+  background: #451a03;
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+.toast-danger {
+  background: #450a0a;
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.toast-success {
+  background: #022c22;
+  color: #a7f3d0;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+[data-theme="dark"] .toast-info { background: var(--surface-up); color: var(--ink); }
+
+/* Side nav AI group label */
+.side-nav-group-label {
+  margin: 16px 0 4px 12px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--subtle);
+}
+
+.nav-ai-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: left;
+  transition: background-color var(--t), color var(--t), border-color var(--t);
+}
+.nav-ai-item:hover {
+  background: rgba(var(--accent-rgb), 0.06);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.12);
+}
+.nav-ai-item.active {
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.24);
+  font-weight: 700;
+}
+
+/* Google button */
+.btn.google-btn {
+  width: 100%;
+  gap: 10px;
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  font-weight: 600;
+  justify-content: center;
+  margin-bottom: 4px;
+  box-shadow: var(--shadow-xs);
+}
+[data-theme="dark"] .btn.google-btn {
+  background: rgba(39, 39, 42, 0.5);
+  border-color: var(--line-strong);
+}
+.btn.google-btn:hover:not(:disabled) {
+  border-color: rgba(66, 133, 244, 0.4);
+  background: rgba(66, 133, 244, 0.06);
+  box-shadow: 0 4px 14px rgba(66, 133, 244, 0.15);
+}
+
+/* Auth divider */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  color: var(--subtle);
+  font-size: 0.8rem;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+/* Pro lab single (full width, no sidebar) */
+.pro-lab-single {
+  display: grid;
+  gap: 0;
+  animation: rise-in 0.36s ease both;
+}
+
+.pro-lab-single .chat-panel {
+  border: none;
+  background: transparent;
+}
+
+.pro-lab-single .chat-window {
+  height: calc(100dvh - 220px);
+  min-height: 480px;
+}
+
+/* Score orbit full */
+.score-orbit {
+  --score: 75%;
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 20px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) 0% var(--score),
+    rgba(var(--accent-rgb), 0.10) var(--score) 100%
+  );
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 8px var(--surface), 0 8px 28px rgba(var(--accent-rgb), 0.22);
+}
+.score-orbit::before {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: var(--surface-up);
+}
+.score-orbit strong,
+.score-orbit span {
+  position: relative;
+  z-index: 1;
+  line-height: 1;
+}
+.score-orbit strong {
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  color: var(--accent);
+}
+.score-orbit span {
+  position: absolute;
+  bottom: 30px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Health detail grid 4 cols */
+.health-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
