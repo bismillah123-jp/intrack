@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -165,6 +165,8 @@ const DEFAULT_THEME = {
   accent: "#0f766e"
 };
 
+const LOCAL_TURNSTILE_SITE_KEY = "0x4AAAAAADaD7d8YIW881-0I";
+
 const initialUi = {
   route: getRoute(),
   navOpen: false,
@@ -231,6 +233,13 @@ function App() {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!alive) return;
       setBoot({ ready: true, demo: false, supabase, session: sessionData.session, backend: "pending" });
+      const authRedirectError = getAuthRedirectError();
+      if (authRedirectError) {
+        notify(`Login Google gagal: ${authRedirectError}`, "danger");
+        go("login");
+      } else if (sessionData.session && (getRoute() === "login" || hasAuthRedirectParams())) {
+        go("app/dashboard");
+      }
 
       supabase.auth.onAuthStateChange((_event, session) => {
         setBoot((current) => ({ ...current, session, backend: session ? current.backend : "pending" }));
@@ -387,12 +396,12 @@ function App() {
   async function signIn(values) {
     if (!boot.supabase) {
       notify("Supabase belum dikonfigurasi. Isi config.js atau .env untuk mengaktifkan auth.");
-      return;
+      return false;
     }
     const captchaSiteKey = getTurnstileSiteKey();
     if (!boot.demo && captchaSiteKey && !values.captchaToken) {
       notify("Harap selesaikan verifikasi Captcha terlebih dahulu.");
-      return;
+      return false;
     }
     const payload = {
       email: values.email,
@@ -410,22 +419,34 @@ function App() {
           data: { full_name: values.full_name || values.email?.split("@")[0] || "Pengguna" }
         }
       });
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message, "danger");
+      return false;
+    }
     notify(ui.authMode === "login" ? "Berhasil masuk." : "Akun dibuat. Cek email jika konfirmasi aktif.");
     go("app/dashboard");
+    return true;
   }
 
   async function signInGoogle() {
     if (!boot.supabase) {
       notify("Supabase belum dikonfigurasi.", "warning");
-      return;
+      return false;
     }
-    const redirectTo = window.location.origin + window.location.pathname + "#/app/dashboard";
+    const redirectTo = getAuthRedirectUrl();
+    notify("Mengarahkan ke Google...", "info");
     const { error } = await boot.supabase.auth.signInWithOAuth({
       provider: "google",
-          options: { redirectTo, queryParams: { access_type: "offline", prompt: "consent" } }
+      options: {
+        redirectTo,
+        queryParams: { access_type: "offline", prompt: "consent" }
+      }
     });
-    if (error) notify(error.message, "danger");
+    if (error) {
+      notify(error.message, "danger");
+      return false;
+    }
+    return true;
   }
 
   async function updateProfile({ full_name, email }) {
@@ -1814,7 +1835,10 @@ function ChatBubble({ message }) {
   );
 }
 
-function Turnstile({ sitekey, onVerify }) {
+function Turnstile({ sitekey, onVerify, resetKey }) {
+  const containerId = useMemo(() => `cf-turnstile-${Math.random().toString(36).slice(2)}`, []);
+  const widgetIdRef = useRef(null);
+
   useEffect(() => {
     if (!document.getElementById("turnstile-script")) {
       const script = document.createElement("script");
@@ -1824,32 +1848,53 @@ function Turnstile({ sitekey, onVerify }) {
       script.defer = true;
       document.head.appendChild(script);
     }
-    let widgetId;
-    window.__turnstileCb = (token) => onVerify(token);
+    let cancelled = false;
+    let retryTimer;
     const renderWidget = () => {
-      if (window.turnstile) {
-        widgetId = window.turnstile.render("#cf-turnstile-widget", {
+      const container = document.getElementById(containerId);
+      if (cancelled || !container) return;
+      if (window.turnstile && widgetIdRef.current === null) {
+        widgetIdRef.current = window.turnstile.render(`#${containerId}`, {
           sitekey,
-          callback: window.__turnstileCb,
+          callback: (token) => onVerify(token),
+          "expired-callback": () => onVerify(""),
+          "error-callback": () => onVerify(""),
+          "timeout-callback": () => onVerify(""),
           theme: "auto"
         });
       } else {
-        setTimeout(renderWidget, 150);
+        retryTimer = setTimeout(renderWidget, 150);
       }
     };
     renderWidget();
     return () => {
-      if (window.turnstile && widgetId !== undefined) {
-        window.turnstile.remove(widgetId);
+      cancelled = true;
+      window.clearTimeout(retryTimer);
+      if (window.turnstile && widgetIdRef.current !== null) {
+        window.turnstile.remove(widgetIdRef.current);
       }
+      widgetIdRef.current = null;
     };
-  }, [sitekey]);
-  return <div id="cf-turnstile-widget" style={{ margin: "0.75rem 0" }} />;
+  }, [sitekey, onVerify, containerId, resetKey]);
+  return <div id={containerId} className="turnstile-box" />;
 }
 
 function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) {
   const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const captchaSiteKey = getTurnstileSiteKey();
+
+  useEffect(() => {
+    setCaptchaToken("");
+    setCaptchaResetKey((value) => value + 1);
+  }, [mode, captchaSiteKey]);
+
+  async function handleGoogleClick() {
+    setGoogleBusy(true);
+    const ok = await onGoogle();
+    if (!ok) setGoogleBusy(false);
+  }
 
   return (
     <main className="auth-view">
@@ -1875,8 +1920,8 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
         <h2>{mode === "login" ? "Selamat datang lagi" : "Buat akun baru"}</h2>
         <button
           className="btn google-btn"
-          disabled={demo}
-          onClick={onGoogle}
+          disabled={demo || googleBusy}
+          onClick={handleGoogleClick}
           type="button"
           id="btn-google-login"
         >
@@ -1886,19 +1931,28 @@ function AuthView({ demo, theme, setTheme, mode, setMode, onSubmit, onGoogle }) 
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
           </svg>
-          Lanjutkan dengan Google
+          {googleBusy ? "Menghubungkan..." : "Lanjutkan dengan Google"}
         </button>
         <div className="auth-divider"><span>atau</span></div>
-        <form onSubmit={(event) => {
+        <form onSubmit={async (event) => {
           event.preventDefault();
           const values = Object.fromEntries(new FormData(event.currentTarget));
           values.captchaToken = captchaToken;
-          onSubmit(values);
+          const ok = await onSubmit(values);
+          if (!ok && captchaSiteKey) {
+            setCaptchaToken("");
+            setCaptchaResetKey((value) => value + 1);
+          }
         }}>
           {mode === "register" ? <label>Nama lengkap<input name="full_name" type="text" disabled={demo} placeholder="Nama kamu" required /></label> : null}
           <label>Email<input name="email" type="email" disabled={demo} required /></label>
           <label>Password<input name="password" type="password" disabled={demo} minLength={6} required /></label>
-          {!demo && captchaSiteKey ? <Turnstile sitekey={captchaSiteKey} onVerify={setCaptchaToken} /> : null}
+          {!demo && captchaSiteKey ? (
+            <div className="captcha-panel">
+              <span>Verifikasi keamanan</span>
+              <Turnstile sitekey={captchaSiteKey} onVerify={setCaptchaToken} resetKey={`${mode}-${captchaResetKey}`} />
+            </div>
+          ) : null}
           <button className="btn primary" disabled={demo || (!demo && captchaSiteKey && !captchaToken)}><LogIn size={18} /> {mode === "login" ? "Masuk" : "Daftar"}</button>
         </form>
       </section>
@@ -2130,24 +2184,58 @@ async function loadConfig() {
   if (new URLSearchParams(location.search).get("demo") === "1") return null;
   const envConfig = {
     SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
-    SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY
+    SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
+    TURNSTILE_SITE_KEY: import.meta.env.VITE_TURNSTILE_SITE_KEY
   };
   if (envConfig.SUPABASE_URL && envConfig.SUPABASE_ANON_KEY && !isPlaceholder(envConfig)) {
-    return envConfig;
+    return setRuntimeConfig(envConfig);
   }
-  if (window.DOMPETRAPI_CONFIG?.SUPABASE_URL) return window.DOMPETRAPI_CONFIG;
+  if (window.DOMPETRAPI_CONFIG?.SUPABASE_URL) return setRuntimeConfig(window.DOMPETRAPI_CONFIG);
   try {
     const configPath = "/config.js";
     const module = await import(/* @vite-ignore */ configPath);
-    if (!isPlaceholder(module)) return module;
+    if (!isPlaceholder(module)) return setRuntimeConfig(module);
   } catch (_error) {
     return null;
   }
   return null;
 }
 
+function setRuntimeConfig(config) {
+  window.__DOMPETRAPI_CONFIG__ = config;
+  return config;
+}
+
 function getTurnstileSiteKey() {
-  return import.meta.env.VITE_TURNSTILE_SITE_KEY || window.DOMPETRAPI_CONFIG?.TURNSTILE_SITE_KEY || "";
+  const key =
+    window.__DOMPETRAPI_CONFIG__?.TURNSTILE_SITE_KEY ||
+    import.meta.env.VITE_TURNSTILE_SITE_KEY ||
+    window.DOMPETRAPI_CONFIG?.TURNSTILE_SITE_KEY;
+  if (key) return key;
+  return isLocalHost() ? LOCAL_TURNSTILE_SITE_KEY : "";
+}
+
+function isLocalHost() {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function getAuthRedirectUrl() {
+  const url = new URL(window.location.href);
+  return `${url.origin}${url.pathname}`;
+}
+
+function hasAuthRedirectParams() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  const search = window.location.search.replace(/^\?/, "");
+  const params = new URLSearchParams(hash.includes("=") ? hash : search);
+  return ["access_token", "refresh_token", "provider_token", "error", "error_code", "code"].some((key) => params.has(key));
+}
+
+function getAuthRedirectError() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  const search = window.location.search.replace(/^\?/, "");
+  const params = new URLSearchParams(hash.includes("=") ? hash : search);
+  return params.get("error_description") || params.get("error") || "";
 }
 
 function getSupabaseClient(config) {
@@ -2155,7 +2243,14 @@ function getSupabaseClient(config) {
   if (!window.__DOMPETRAPI_SUPABASE__ || window.__DOMPETRAPI_SUPABASE__.key !== key) {
     window.__DOMPETRAPI_SUPABASE__ = {
       key,
-      client: createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY)
+      client: createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
+        auth: {
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          flowType: "implicit",
+          persistSession: true
+        }
+      })
     };
   }
   return window.__DOMPETRAPI_SUPABASE__.client;

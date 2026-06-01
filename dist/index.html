@@ -12,14 +12,24 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon.svg" />
-    <script type="module" crossorigin src="/assets/index-T7Et560s.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BC0w3Zek.css">
+    <script type="module" crossorigin src="/assets/index-Bjz_fBvr.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-COsB2N63.css">
   </head>
   <body>
     <div id="root"></div>
     <script>
       if ('serviceWorker' in navigator) {
+        const isLocalDev = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
         window.addEventListener('load', () => {
+          if (isLocalDev) {
+            Promise.all([
+              navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))),
+              window.caches ? caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith('dompetrapi-cache')).map((key) => caches.delete(key)))) : Promise.resolve()
+            ]).then(() => {
+              if (navigator.serviceWorker.controller) location.reload();
+            });
+            return;
+          }
           navigator.serviceWorker.register('/sw.js');
         });
       }

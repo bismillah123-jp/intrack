@@ -26,6 +26,7 @@ npm run build
 ```
 
 Untuk Google OAuth, aktifkan provider Google di Supabase Auth dan masukkan redirect URL domain tempat app di-host.
+Untuk development lokal, tambahkan `http://127.0.0.1:8787/**` ke Supabase Auth URL Configuration. Di Google Cloud OAuth, Authorized JavaScript origin memakai `http://127.0.0.1:8787`, sedangkan Authorized redirect URI memakai callback URL dari halaman Google provider Supabase.
 
 Alternatif build-time: copy `.env.example` ke `.env` dan isi:
 
@@ -48,7 +49,7 @@ FREETHEAI_API_KEY=your-freetheai-api-key
 
 Jangan menaruh FreeTheAI key di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser.
 
-Cloudflare Turnstile bersifat opsional. Jika Supabase Auth kamu mengaktifkan captcha, isi `VITE_TURNSTILE_SITE_KEY`; jika tidak, kosongkan saja.
+Cloudflare Turnstile dipakai untuk form email/password. Jika Supabase Auth kamu mengaktifkan CAPTCHA protection, isi `VITE_TURNSTILE_SITE_KEY` dengan sitekey Turnstile dan masukkan secret key-nya di Supabase Auth > Bot and Abuse Protection. Untuk development lokal, tambahkan `localhost` dan `127.0.0.1` ke domain allowlist Cloudflare Turnstile.
 
 ## Routes
 
