@@ -500,6 +500,11 @@ function App() {
     if (guardDemo()) return;
     const wallet = data.wallets.find((item) => item.id === values.wallet_id);
     const amount = number(values.amount);
+
+    if (values.type === "expense" && wallet && number(wallet.balance) < amount) {
+      return notify(`Saldo ${wallet.name} tidak cukup! (Sisa: ${money(wallet.balance)})`, "danger");
+    }
+
     if (boot.backend === "fintrack") {
       const payload = {
         id: makeId("tx"),
