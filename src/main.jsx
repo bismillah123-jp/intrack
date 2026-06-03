@@ -359,27 +359,36 @@ function App() {
 
   function checkFinanceAlerts(metricsData, budgetsData) {
     const alerts = [];
+    if (!budgetsData.length) {
+      alerts.push({ type: "info", message: "Belum ada budget aktif bulan ini. Progress memakai rasio pengeluaran terhadap pemasukan." });
+    }
+    if (metricsData.healthScore < 45) {
+      alerts.push({ type: "danger", message: `Financial health ${metricsData.healthScore}/100. Prioritas: kurangi budget bocor dan jaga cashflow positif.` });
+    } else if (metricsData.healthScore < 65) {
+      alerts.push({ type: "warning", message: `Financial health ${metricsData.healthScore}/100. Masih ada ruang untuk menambah sisa budget dan dana darurat.` });
+    }
+    const overBudgets = budgetsData.filter((budget) => budget.status === "over" || budget.status === "unplanned");
+    overBudgets.slice(0, 2).forEach((budget) => {
+      const excess = Math.abs(Math.min(0, budget.remaining));
+      alerts.push({ type: "danger", message: `Budget ${budget.categoryName} over ${Math.round(budget.percent)}%. Kelebihan ${money(excess)}.` });
+    });
+    const nearBudgets = budgetsData.filter((budget) => budget.status === "near");
+    nearBudgets.slice(0, 2).forEach((budget) => {
+      alerts.push({ type: "warning", message: `Budget ${budget.categoryName} sudah ${Math.round(budget.percent)}%. Sisa ${money(Math.max(0, budget.remaining))}.` });
+    });
     if (metricsData.savingsRate < 10 && metricsData.monthlyIncome > 0) {
-      alerts.push({ type: "warning", message: `Saving rate kamu hanya ${metricsData.savingsRate}% — idealnya minimal 20% dari pemasukan.` });
+      alerts.push({ type: "warning", message: `Saving rate ${metricsData.savingsRate}%. Target sehat minimal 20% dari pemasukan.` });
     }
-    if (metricsData.healthScore < 50) {
-      alerts.push({ type: "danger", message: `Financial health score ${metricsData.healthScore}/100 tergolong rendah. Periksa budget dan utang.` });
-    }
-    const overBudgets = budgetsData.filter((b) => b.percent > 100);
-    overBudgets.slice(0, 2).forEach((b) => {
-      alerts.push({ type: "danger", message: `Budget ${b.categoryName} sudah over ${Math.round(b.percent)}% — segera kurangi pengeluaran.` });
-    });
-    const nearBudgets = budgetsData.filter((b) => b.percent >= 80 && b.percent <= 100);
-    nearBudgets.slice(0, 2).forEach((b) => {
-      alerts.push({ type: "warning", message: `Budget ${b.categoryName} sudah ${Math.round(b.percent)}% — hampir habis.` });
-    });
     if (metricsData.debt > metricsData.assets * 0.5 && metricsData.debt > 0) {
       alerts.push({ type: "warning", message: `Utang kamu ${money(metricsData.debt)} cukup besar. Prioritaskan pelunasan.` });
     }
-    if (metricsData.savingsRate >= 30 && metricsData.healthScore >= 75) {
-      alerts.push({ type: "success", message: `Kondisi keuangan kamu sehat! Saving rate ${metricsData.savingsRate}% dan score ${metricsData.healthScore}/100.` });
+    if (metricsData.runwayMonths > 0 && metricsData.runwayMonths < 3) {
+      alerts.push({ type: "warning", message: `Runway dana darurat ${metricsData.runwayMonths.toFixed(1)} bulan. Target aman minimal 3-6 bulan.` });
     }
-    setUi((current) => ({ ...current, financeAlerts: alerts }));
+    if (!alerts.length) {
+      alerts.push({ type: "success", message: `Keuangan stabil. Health ${metricsData.healthScore}/100 dan budget utama terkendali.` });
+    }
+    setUi((current) => ({ ...current, financeAlerts: alerts.slice(0, 5) }));
   }
 
   function guardDemo() {
@@ -1013,17 +1022,6 @@ function Workspace(props) {
           </div>
         ) : null}
 
-        {ui.financeAlerts?.length > 0 && page === "dashboard" ? (
-          <div className="finance-alerts">
-            {ui.financeAlerts.map((alert, index) => (
-              <div key={index} className={`finance-alert finance-alert-${alert.type}`}>
-                <span>{alert.type === "danger" ? "⚠️" : alert.type === "warning" ? "💡" : "✅"}</span>
-                <p>{alert.message}</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
         {page !== "dashboard" ? (
           <div className="page-head">
             <div>
@@ -1114,9 +1112,10 @@ function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
   const totalBudgetLimit = sum(budgets, "limit");
   const totalBudgetSpent = sum(budgets, "spent");
   const budgetBase = totalBudgetLimit || metrics.monthlyIncome || Math.max(metrics.monthlyExpense, 1);
-  const expenseProgress = Math.round((metrics.monthlyExpense / budgetBase) * 100);
-  const budgetRealization = totalBudgetLimit ? Math.round((totalBudgetSpent / totalBudgetLimit) * 100) : 0;
-  const remainingBudget = Math.max(0, budgetBase - metrics.monthlyExpense);
+  const budgetUsed = totalBudgetLimit ? totalBudgetSpent : metrics.monthlyExpense;
+  const budgetProgress = Math.round((budgetUsed / budgetBase) * 100);
+  const budgetRealization = budgetProgress;
+  const remainingBudget = Math.max(0, budgetBase - budgetUsed);
   const runway = metrics.monthlyExpense ? metrics.assets / metrics.monthlyExpense : 0;
   const billBudget = budgets.find((budget) => /tagihan|listrik|internet|cicilan|sewa/i.test(budget.categoryName));
   const upcomingBill = billBudget ? Math.max(0, number(billBudget.limit) - number(billBudget.spent)) : 0;
@@ -1173,9 +1172,11 @@ function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
             <span>Budget tersisa</span>
             <b>{hidden ? "\u2022\u2022\u2022" : money(remainingBudget)}</b>
           </div>
-          <Progress value={expenseProgress} danger={expenseProgress > 100} />
+          <Progress value={budgetProgress} danger={budgetProgress > 100} warning={budgetProgress >= 85 && budgetProgress <= 100} />
         </div>
       </section>
+
+      <FinanceNotificationPanel alerts={ui?.financeAlerts || []} metrics={metrics} budgets={budgets} />
 
       <section className="panel main-menu-panel desktop-hide">
         <div className="menu-title">
@@ -1195,13 +1196,13 @@ function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
 
       <section className="dashboard-insights">
         <article className="panel dash-card progress-card">
-          <PanelHead title="Progres pengeluaran" badge={`${expenseProgress}%`} />
-          <div className="progress-ring" style={{ "--value": `${Math.min(expenseProgress, 100)}%` }}>
-            <strong>{Math.min(expenseProgress, 999)}%</strong>
+          <PanelHead title="Progres budget" badge={`${budgetProgress}%`} />
+          <div className="progress-ring" style={{ "--value": `${Math.min(budgetProgress, 100)}%` }}>
+            <strong>{Math.min(budgetProgress, 999)}%</strong>
             <span>{periodLabel()}</span>
           </div>
-          <Progress value={expenseProgress} danger={expenseProgress > 100} />
-          <p>{money(metrics.monthlyExpense)} terpakai dari {money(budgetBase)}.</p>
+          <Progress value={budgetProgress} danger={budgetProgress > 100} warning={budgetProgress >= 85 && budgetProgress <= 100} />
+          <p>{money(budgetUsed)} terpakai dari {money(budgetBase)}.</p>
         </article>
 
         <article className="panel dash-card activity-card">
@@ -1241,6 +1242,38 @@ function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
         </article>
       </section>
     </div>
+  );
+}
+
+function FinanceNotificationPanel({ alerts, metrics, budgets }) {
+  const totalRemaining = budgets.reduce((total, budget) => total + Math.max(0, budget.remaining || 0), 0);
+  const overCount = budgets.filter((budget) => budget.status === "over" || budget.status === "unplanned").length;
+  const visibleAlerts = alerts?.length ? alerts : [{ type: "success", message: "Tidak ada notifikasi penting untuk bulan ini." }];
+
+  return (
+    <section className="panel finance-notification-panel" aria-label="Notifikasi keuangan">
+      <div className="finance-notification-head">
+        <div>
+          <span className="mini-badge">Status</span>
+          <h3>Notifikasi keuangan</h3>
+        </div>
+        <strong>{metrics.healthScore}/100</strong>
+      </div>
+      <div className="finance-notification-summary">
+        <span>Health <b>{metrics.healthStatus}</b></span>
+        <span>Budget aktif <b>{budgets.length}</b></span>
+        <span>Sisa budget <b>{money(totalRemaining)}</b></span>
+        <span>Over <b>{overCount}</b></span>
+      </div>
+      <div className="finance-alert-list">
+        {visibleAlerts.map((alert, index) => (
+          <div key={`${alert.type}-${index}`} className={`finance-alert finance-alert-${alert.type}`}>
+            <span aria-hidden="true">{alert.type === "danger" ? "!" : alert.type === "warning" ? "i" : alert.type === "info" ? "?" : "OK"}</span>
+            <p>{alert.message}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1408,7 +1441,9 @@ function Budgets({ data, budgets, ui, setUi, demo, onBudget, onDelete }) {
           <article className="budget-tile" key={budget.id}>
             <div className="tile-top">
               <div>
-                <span className={`mini-badge ${budget.percent > 100 ? "danger" : ""}`}>{budget.percent > 100 ? "Over" : budget.method}</span>
+                <span className={`mini-badge ${budget.status === "over" || budget.status === "unplanned" ? "danger" : budget.status === "near" ? "warning" : ""}`}>
+                  {budget.status === "over" || budget.status === "unplanned" ? "Over" : budget.status === "near" ? "Hampir habis" : budget.method}
+                </span>
                 <h3>{budget.categoryName}</h3>
               </div>
               <div className="tile-actions">
@@ -1649,8 +1684,8 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
           <div className="health-detail-grid">
             <div className="health-detail-card">
               <Gauge size={20} />
-              <span>Skor</span>
-              <strong>{metrics.healthScore}/100</strong>
+              <span>Status</span>
+              <strong>{metrics.healthStatus}</strong>
             </div>
             <div className="health-detail-card">
               <CircleDollarSign size={20} />
@@ -1667,6 +1702,23 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
               <span>Goals aktif</span>
               <strong>{data.goals.length}</strong>
             </div>
+          </div>
+          <div className="health-breakdown-list">
+            {[
+              ["Cashflow", metrics.healthBreakdown?.cashflow],
+              ["Budget", metrics.healthBreakdown?.budget],
+              ["Dana darurat", metrics.healthBreakdown?.emergency],
+              ["Utang", metrics.healthBreakdown?.debt],
+              ["Goals", metrics.healthBreakdown?.goals]
+            ].map(([label, value]) => (
+              <div className="health-factor" key={label}>
+                <div>
+                  <span>{label}</span>
+                  <strong>{value || 0}/100</strong>
+                </div>
+                <Progress value={value || 0} warning={(value || 0) < 65 && (value || 0) >= 45} danger={(value || 0) < 45} />
+              </div>
+            ))}
           </div>
           <button className="btn primary" onClick={() => {
             go("app/pro-chat");
@@ -1901,21 +1953,26 @@ function TransactionItem({ tx, data, onDelete }) {
 }
 
 function BudgetLine({ budget }) {
+  const over = budget.remaining < 0;
+  const statusText = over ? `${money(Math.abs(budget.remaining))} over` : `${money(Math.max(0, budget.remaining || 0))} tersisa`;
+  const percent = Math.round(budget.percent || 0);
   return (
-    <div className="budget-line">
+    <div className={`budget-line budget-line-${budget.status || "ok"}`}>
       <div>
         <strong>{budget.categoryName}</strong>
-        <span>{money(budget.spent)} dari {money(budget.limit)}</span>
+        <span>{money(budget.spent)} dari {money(budget.limit)} - {statusText}</span>
       </div>
-      <Progress value={budget.percent} danger={budget.percent > 100} />
+      <Progress value={budget.progress ?? budget.percent} danger={budget.status === "over" || budget.status === "unplanned"} warning={budget.status === "near"} />
+      <small>{percent}% terpakai</small>
     </div>
   );
 }
 
-function Progress({ value, danger }) {
+function Progress({ value, danger, warning }) {
+  const safeValue = clamp(number(value), 0, 100);
   return (
-    <div className={danger ? "progress danger" : "progress"}>
-      <span style={{ width: `${Math.min(value, 100)}%` }} />
+    <div className={`progress ${danger ? "danger" : warning ? "warning" : ""}`}>
+      <span style={{ width: `${safeValue}%` }} />
     </div>
   );
 }
@@ -2167,11 +2224,54 @@ function getMetrics(data) {
   const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater"].includes(item.type)), "balance");
   const debt = Math.abs(sum(data.wallets.filter((item) => ["credit_card", "paylater"].includes(item.type)), "balance"));
   const netWorth = assets - debt;
-  const savingsRate = monthlyIncome ? Math.round(((monthlyIncome - monthlyExpense) / monthlyIncome) * 100) : 0;
-  const overBudget = enrichBudgets(data).filter((item) => item.percent > 100).length;
-  const goalAvg = data.goals.length ? data.goals.reduce((total, goal) => total + goalProgress(goal), 0) / data.goals.length : 0;
-  const healthScore = clamp(Math.round(62 + savingsRate / 3 + goalAvg / 9 - overBudget * 8 - Math.min(20, debt / Math.max(assets, 1) * 20)), 0, 100);
-  return { monthlyIncome, monthlyExpense, assets, debt, netWorth, savingsRate, healthScore };
+  const savingsRateValue = monthlyIncome ? ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100 : monthlyExpense > 0 ? -100 : 0;
+  const savingsRate = Math.round(savingsRateValue);
+  const budgets = enrichBudgets(data);
+  const activeBudgetCount = budgets.length;
+  const overBudget = budgets.filter((item) => item.status === "over" || item.status === "unplanned").length;
+  const nearBudget = budgets.filter((item) => item.status === "near").length;
+  const avgBudgetUsage = activeBudgetCount ? budgets.reduce((total, item) => total + Math.min(item.percent, 150), 0) / activeBudgetCount : 0;
+  const budgetSpent = sum(budgets, "spent");
+  const budgetCoverage = monthlyExpense ? clamp((budgetSpent / monthlyExpense) * 100, 0, 100) : activeBudgetCount ? 100 : 0;
+  const goalAvg = data.goals.length ? data.goals.reduce((total, goal) => total + goalProgress(goal), 0) / data.goals.length : 60;
+  const runwayMonths = monthlyExpense ? assets / monthlyExpense : assets > 0 ? 6 : 0;
+  const debtRatio = assets ? debt / assets : debt ? 1 : 0;
+
+  const cashflowScore = monthlyIncome ? clamp(50 + savingsRateValue * 2, 0, 100) : monthlyExpense > 0 ? 20 : 60;
+  const budgetScore = activeBudgetCount
+    ? clamp(100 - overBudget * 18 - nearBudget * 7 - Math.max(avgBudgetUsage - 85, 0) * 0.9 + Math.min(budgetCoverage, 100) * 0.05, 0, 100)
+    : 55;
+  const emergencyScore = monthlyExpense ? clamp((runwayMonths / 6) * 100, 0, 100) : assets > 0 ? 100 : 55;
+  const debtScore = clamp(100 - debtRatio * 140, 0, 100);
+  const goalScore = clamp(goalAvg, 0, 100);
+  const healthScore = clamp(Math.round(
+    cashflowScore * 0.30 +
+    budgetScore * 0.25 +
+    emergencyScore * 0.20 +
+    debtScore * 0.15 +
+    goalScore * 0.10
+  ), 0, 100);
+
+  return {
+    monthlyIncome,
+    monthlyExpense,
+    assets,
+    debt,
+    netWorth,
+    savingsRate,
+    runwayMonths,
+    budgetUsage: Math.round(avgBudgetUsage),
+    budgetCoverage: Math.round(budgetCoverage),
+    healthScore,
+    healthStatus: getHealthStatus(healthScore),
+    healthBreakdown: {
+      cashflow: Math.round(cashflowScore),
+      budget: Math.round(budgetScore),
+      emergency: Math.round(emergencyScore),
+      debt: Math.round(debtScore),
+      goals: Math.round(goalScore)
+    }
+  };
 }
 
 function enrichBudgets(data) {
@@ -2179,20 +2279,43 @@ function enrichBudgets(data) {
   const income = sum(data.transactions.filter((item) => item.type === "income" && monthKey(item.transaction_date) === month), "amount");
   const expenses = data.transactions.filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month);
   return data.budgets
-    .filter((item) => monthKey(item.period_start) === month)
+    .filter((item) => !item.period_start || monthKey(item.period_start) === month)
     .map((budget) => {
       const category = data.categories.find((item) => item.id === budget.category_id);
       const spent = sum(expenses.filter((item) => item.category_id === budget.category_id), "amount");
-      const percentageLimit = budget.method === "percentage" && budget.percentage ? income * (number(budget.percentage) / 100) : 0;
-      const limit = percentageLimit || number(budget.amount);
+      const fixedLimit = number(budget.amount);
+      const percentage = number(budget.percentage);
+      const percentageLimit = budget.method === "percentage" && percentage > 0 && income > 0 ? income * (percentage / 100) : 0;
+      const limit = percentageLimit || fixedLimit || 0;
+      const percent = limit ? (spent / limit) * 100 : spent > 0 ? 100 : 0;
+      const remaining = limit - spent;
+      const status = getBudgetStatus(percent, limit, spent);
       return {
         ...budget,
         categoryName: category?.name || "Kategori",
         spent,
         limit,
-        percent: limit ? spent / limit * 100 : 0
+        remaining,
+        percent,
+        progress: clamp(percent, 0, 100),
+        status
       };
     });
+}
+
+function getBudgetStatus(percent, limit, spent) {
+  if (!limit && spent > 0) return "unplanned";
+  if (percent > 100) return "over";
+  if (percent >= 85) return "near";
+  if (percent >= 65) return "watch";
+  return "ok";
+}
+
+function getHealthStatus(score) {
+  if (score >= 80) return "Sehat";
+  if (score >= 65) return "Cukup";
+  if (score >= 45) return "Perlu perhatian";
+  return "Kritis";
 }
 
 function trendData(data) {
@@ -2365,7 +2488,9 @@ function buildFinanceContext(data, budgets, metrics) {
     category: budget.categoryName,
     spent: budget.spent,
     limit: budget.limit,
-    usage_percent: Math.round(budget.percent)
+    remaining: budget.remaining,
+    usage_percent: Math.round(budget.percent),
+    status: budget.status
   }));
 
   return JSON.stringify({
