@@ -682,28 +682,41 @@ function App() {
           advisor: [
             ...normalizeChatMessages(current.advisor),
             { role: "user", text: userQuestion },
-            { id: loadingId, role: "assistant", text: "ShanIA lagi mikir... 💅", loading: true }
+            { id: loadingId, role: "assistant", text: "ShanIA lagi mikir...", loading: true }
           ]
         }));
       },
-      onSuccess: (lines) => {
+      onStream: (text) => {
         setUi((current) => ({
           ...current,
-          advisor: replaceLoadingMessage(current.advisor, loadingId, {
+          advisor: upsertChatMessage(current.advisor, loadingId, {
+            id: loadingId,
             role: "assistant",
-            text: lines.join("\n")
+            text,
+            loading: false,
+            streaming: true
           })
         }));
       },
-      onError: (lines) => {
+      onSuccess: (lines, payload) => {
         setUi((current) => ({
           ...current,
           advisor: replaceLoadingMessage(current.advisor, loadingId, {
             role: "assistant",
-            text: lines.join("\n")
+            text: payload?.text || lines.join("\n")
           })
         }));
-      }
+      },
+      onError: (lines, payload) => {
+        setUi((current) => ({
+          ...current,
+          advisor: replaceLoadingMessage(current.advisor, loadingId, {
+            role: "assistant",
+            text: payload?.text || lines.join("\n")
+          })
+        }));
+      },
+      stream: true
     });
   }
 
@@ -743,23 +756,46 @@ function App() {
     });
   }
 
-  async function runAI({ slot, prompt, system, context, imageUrl, onStart, onSuccess, onError }) {
+  async function runAI({ slot, prompt, system, context, imageUrl, onStart, onStream, onSuccess, onError, stream = false }) {
     if (onStart) {
       onStart();
     } else {
       setUi((current) => ({
         ...current,
-        [slot]: ["Thingking..."]
+        [slot]: ["Thinking..."]
       }));
     }
 
+    let streamedText = "";
+    let streamedModel = imageUrl ? "glm-4.6v-flash" : "glm-4.7-flash";
     try {
       const response = await fetch("/api/openrouter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, system, context, imageUrl })
+        body: JSON.stringify({ prompt, system, context, imageUrl, stream: stream && !imageUrl })
       });
       const contentType = response.headers.get("content-type") || "";
+      if (stream && !imageUrl && response.ok && response.body) {
+        const payload = await readAiStream(response, {
+          onMeta: (event) => {
+            streamedModel = event.model || streamedModel;
+          },
+          onDelta: (text) => {
+            streamedText += text;
+            if (onStream) onStream(streamedText, { model: streamedModel });
+          }
+        });
+        streamedText = payload.text || streamedText;
+        streamedModel = payload.model || streamedModel;
+        const lines = splitAiText(streamedText);
+        if (onSuccess) {
+          onSuccess(lines, { text: streamedText, model: streamedModel, streamed: true });
+        } else {
+          setUi((current) => ({ ...current, [slot]: lines }));
+        }
+        logAi(slot, { lines, model: streamedModel, streamed: true }, prompt);
+        return;
+      }
       if (!contentType.includes("application/json")) {
         throw new Error("Jalankan lewat Vercel dev atau deploy ke Vercel.");
       }
@@ -773,15 +809,23 @@ function App() {
       }
       logAi(slot, { lines, model: payload.model || (imageUrl ? "glm-4.6v-flash" : "glm-4.7-flash") }, prompt);
     } catch (error) {
+      if (error.partialText && !streamedText) {
+        streamedText = error.partialText;
+      }
+      if (error.model) {
+        streamedModel = error.model;
+      }
       const reason = (error.message || "AI tidak bisa dihubungi").replace(/[.]+$/, "");
-      const fallback = `AI belum aktif: ${reason}.`;
+      const fallback = streamedText
+        ? `${streamedText.trim()}\n\nRespons terputus: ${reason}. Teks di atas adalah jawaban terakhir yang berhasil diterima.`
+        : `AI belum aktif: ${reason}.`;
       const lines = splitAiText(fallback);
       if (onError) {
-        onError(lines);
+        onError(lines, { text: fallback, partial: streamedText, model: streamedModel });
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
-      notify(fallback, "warning");
+      notify(streamedText ? "Streaming AI terputus. Jawaban parsial tetap disimpan di chat." : fallback, "warning");
     }
   }
 
@@ -1733,13 +1777,16 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
 }
 
 function ChatBubble({ message }) {
-  const lines = splitAiText(message.text || "");
+  const lines = splitChatText(message.text || "");
   return (
     <div className={`chat-bubble ${message.role === "user" ? "user" : "assistant"}`}>
       {message.loading ? (
         <span className="typing-dots"><i /><i /><i /></span>
       ) : (
-        lines.map((line, index) => <p key={index}>{line}</p>)
+        <>
+          {lines.map((line, index) => <p key={index}>{line}</p>)}
+          {message.streaming ? <span className="streaming-status">Menulis...</span> : null}
+        </>
       )}
     </div>
   );
@@ -2512,6 +2559,54 @@ function buildFinanceContext(data, budgets, metrics) {
   }, null, 2);
 }
 
+async function readAiStream(response, { onMeta, onDelta } = {}) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let model = "";
+
+  const handleLine = (line) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (event.type === "meta") {
+      model = event.model || model;
+      if (onMeta) onMeta(event);
+    } else if (event.type === "delta") {
+      const delta = event.text || "";
+      text += delta;
+      if (onDelta) onDelta(delta, event);
+    } else if (event.type === "done") {
+      text = event.text || text;
+      model = event.model || model;
+    } else if (event.type === "error") {
+      if (event.partial && !text) text = event.partial;
+      const error = new Error(event.message || "Streaming AI terputus.");
+      error.partialText = text;
+      error.model = event.model || model;
+      throw error;
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      handleLine(line);
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    handleLine(buffer);
+  }
+
+  return { text, model };
+}
+
 function normalizeChatMessages(messages) {
   if (!Array.isArray(messages) || !messages.length) return initialUi.advisor;
   if (typeof messages[0] === "string") {
@@ -2520,9 +2615,21 @@ function normalizeChatMessages(messages) {
   return messages.map((message) => ({
     id: message.id,
     role: message.role === "user" ? "user" : "assistant",
-    text: cleanAiLine(message.text || ""),
-    loading: Boolean(message.loading)
+    text: String(message.text || ""),
+    loading: Boolean(message.loading),
+    streaming: Boolean(message.streaming)
   }));
+}
+
+function upsertChatMessage(messages, messageId, replacement) {
+  const normalized = normalizeChatMessages(messages);
+  let replaced = false;
+  const next = normalized.map((message) => {
+    if (message.id !== messageId) return message;
+    replaced = true;
+    return { ...message, ...replacement };
+  });
+  return replaced ? next : [...next, replacement];
 }
 
 function replaceLoadingMessage(messages, loadingId, replacement) {
@@ -2696,6 +2803,14 @@ function cleanAiLine(text) {
     .replace(/^[\s\-\u2013\u2014\u2022]+/, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function splitChatText(text) {
+  return String(text || "")
+    .replace(/\r/g, "")
+    .split(/\n{2,}|\n/)
+    .map((line) => cleanAiLine(line))
+    .filter(Boolean);
 }
 
 function splitAiText(text) {

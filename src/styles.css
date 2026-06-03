@@ -1697,6 +1697,16 @@ input[type="color"] {
 .typing-dots i:nth-child(2) { animation-delay: 0.16s; }
 .typing-dots i:nth-child(3) { animation-delay: 0.32s; }
 
+.streaming-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 /* Chat composer */
 .chat-composer {
   display: grid;

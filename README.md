@@ -42,6 +42,7 @@ Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js` dan endpo
 
 - Chat advisor dan report memakai model `glm-4.7-flash`.
 - Scan struk/gambar memakai model `glm-4.6v-flash`.
+- AI Chat/Advisor memakai streaming response. Jika koneksi terputus, teks parsial terakhir tetap ditampilkan di chat.
 
 Untuk production di Vercel, tambahkan environment variable server:
 
