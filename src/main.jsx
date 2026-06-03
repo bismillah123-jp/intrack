@@ -771,7 +771,7 @@ function App() {
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
-      logAi(slot, { lines, model: "fee/kimi-k2.6" }, prompt);
+      logAi(slot, { lines, model: payload.model || (imageUrl ? "glm-4.6v-flash" : "glm-4.7-flash") }, prompt);
     } catch (error) {
       const reason = (error.message || "AI tidak bisa dihubungi").replace(/[.]+$/, "");
       const fallback = `AI belum aktif: ${reason}.`;

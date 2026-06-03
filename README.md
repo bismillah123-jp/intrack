@@ -33,20 +33,23 @@ Alternatif build-time: copy `.env.example` ke `.env` dan isi:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-FREETHEAI_API_KEY=your-freetheai-api-key
+BIGMODEL_API_KEY=your-bigmodel-api-key
 ```
 
-## FreeTheAI
+## BigModel GLM
 
-Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js`, model `fee/kimi-k2.6`, dan endpoint FreeTheAI `/v1/chat/completions`.
+Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js` dan endpoint BigModel `https://open.bigmodel.cn/api/paas/v4/chat/completions`.
+
+- Chat advisor dan report memakai model `glm-4.7-flash`.
+- Scan struk/gambar memakai model `glm-4.6v-flash`.
 
 Untuk production di Vercel, tambahkan environment variable server:
 
 ```env
-FREETHEAI_API_KEY=your-freetheai-api-key
+BIGMODEL_API_KEY=your-bigmodel-api-key
 ```
 
-Jangan menaruh FreeTheAI key di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser.
+Jangan menaruh BigModel key di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser. Endpoint juga menerima `ZHIPU_API_KEY` sebagai alias server-only jika kamu lebih suka nama itu.
 
 ## Routes
 
@@ -62,6 +65,6 @@ Jangan menaruh FreeTheAI key di `VITE_` env karena nilai `VITE_` ikut masuk ke b
 ## Catatan MVP
 
 - Tidak ada sync rekening bank otomatis.
-- AI advisor, receipt scanner, dan report analyzer memakai FreeTheAI lewat `/api/openrouter`.
+- AI advisor dan report analyzer memakai BigModel `glm-4.7-flash`; receipt scanner memakai `glm-4.6v-flash` lewat `/api/openrouter`.
 - Produk sekarang Pro-only; tabel `subscriptions` tetap dipakai untuk status akun Pro.
 - Tema gelap/terang dan warna aksen custom disimpan di browser lewat `localStorage`.
