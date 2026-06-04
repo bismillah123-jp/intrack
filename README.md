@@ -2,6 +2,14 @@
 
 DompetRapi adalah MVP SaaS pengelolaan keuangan pribadi berbasis Vite + React. App memakai Supabase untuk auth/database, Chart.js untuk grafik, dan Lucide React untuk ikon.
 
+## Dompet Emas
+
+- Jenis dompet `Emas` menyimpan jumlah aset dalam gram melalui kolom `wallets.gold_grams`.
+- Nilai rupiah dihitung dari harga `perGram` pada `https://api-harga.vercel.app/api/harga/emas`.
+- Harga diperiksa setiap 5 detik dan harga terakhir disimpan di browser sebagai fallback saat koneksi terputus.
+- Nilai emas ikut dihitung dalam aset, net worth, dan konteks AI Advisor.
+- Jalankan ulang `supabase/schema.sql` pada project lama agar tipe `gold` dan kolom `gold_grams` tersedia.
+
 ## Menjalankan Demo Lokal
 
 Install dependency, lalu jalankan dev server:

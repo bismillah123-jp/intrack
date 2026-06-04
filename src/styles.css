@@ -1351,6 +1351,109 @@ input[type="color"] {
   letter-spacing: -0.05em;
 }
 
+.gold-market-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, #ca8a04 28%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, #ca8a04 7%, var(--surface));
+}
+
+.gold-market-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 10px;
+  color: #a16207;
+  background: color-mix(in srgb, #ca8a04 15%, var(--surface));
+  border: 1px solid color-mix(in srgb, #ca8a04 25%, var(--line));
+}
+
+.gold-market-strip div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.gold-market-strip small,
+.gold-wallet-meta span,
+.gold-input-wrapper span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.gold-market-strip strong {
+  font-size: 1.05rem;
+}
+
+.gold-market-status {
+  justify-items: end;
+  text-align: right;
+}
+
+.gold-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.gold-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #16a34a;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #16a34a 14%, transparent);
+}
+
+.gold-status.stale i {
+  background: #ca8a04;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #ca8a04 14%, transparent);
+}
+
+.gold-wallet-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.gold-wallet-meta b {
+  color: #a16207;
+  font-size: 0.88rem;
+}
+
+.gold-input-wrapper {
+  display: grid;
+  gap: 7px;
+}
+
+.gold-input-wrapper span {
+  padding-left: 2px;
+}
+
+@media (max-width: 640px) {
+  .gold-market-strip {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .gold-market-status {
+    grid-column: 1 / -1;
+    justify-items: start;
+    text-align: left;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+}
+
 /* Transactions */
 .transaction-item {
   display: grid;

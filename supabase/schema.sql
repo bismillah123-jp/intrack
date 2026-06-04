@@ -21,12 +21,30 @@ create table if not exists public.wallets (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
-  type text not null check (type in ('bank', 'ewallet', 'cash', 'credit_card', 'paylater', 'investment')),
+  type text not null check (type in ('bank', 'ewallet', 'cash', 'credit_card', 'paylater', 'investment', 'gold')),
   balance numeric(14, 2) not null default 0,
+  gold_grams numeric(18, 6) not null default 0 check (gold_grams >= 0),
   color text not null default '#0f8b8d',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.wallets
+add column if not exists gold_grams numeric(18, 6) not null default 0;
+
+alter table public.wallets
+drop constraint if exists wallets_type_check;
+
+alter table public.wallets
+add constraint wallets_type_check
+check (type in ('bank', 'ewallet', 'cash', 'credit_card', 'paylater', 'investment', 'gold'));
+
+alter table public.wallets
+drop constraint if exists wallets_gold_grams_check;
+
+alter table public.wallets
+add constraint wallets_gold_grams_check
+check (gold_grams >= 0);
 
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),

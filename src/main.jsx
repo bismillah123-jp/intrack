@@ -15,6 +15,7 @@ import {
   CreditCard,
   FileSearch,
   Gauge,
+  Gem,
   ImageUp,
   LayoutDashboard,
   Loader2,
@@ -76,8 +77,13 @@ const WALLET_TYPES = [
   ["cash", "Cash"],
   ["credit_card", "Kartu kredit"],
   ["paylater", "PayLater"],
-  ["investment", "Investasi"]
+  ["investment", "Investasi"],
+  ["gold", "Emas"]
 ];
+
+const GOLD_PRICE_URL = "https://api-harga.vercel.app/api/harga/emas";
+const GOLD_REFRESH_MS = 5000;
+const GOLD_PRICE_CACHE_KEY = "dompetrapi-gold-price";
 
 const NAV = [
   ["dashboard", LayoutDashboard, "Dashboard"],
@@ -197,10 +203,68 @@ function App() {
   const [profile, setProfile] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [data, setData] = useState(emptyData());
+  const [goldPrice, setGoldPrice] = useState(loadGoldPriceCache);
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    let controller = null;
+
+    async function syncGoldPrice() {
+      if (inFlight) return;
+      inFlight = true;
+      controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 4500);
+
+      try {
+        const response = await fetch(GOLD_PRICE_URL, {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+          signal: controller.signal
+        });
+        const payload = await response.json();
+        const perGram = number(payload?.data?.perGram);
+        if (!response.ok || !payload?.success || perGram <= 0) {
+          throw new Error("Harga emas tidak tersedia.");
+        }
+
+        const next = {
+          perGram,
+          perKg: number(payload?.data?.perKg),
+          source: payload?.data?.sumber || "api-harga.vercel.app",
+          updatedAt: payload?.data?.terakhirUpdate || null,
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          error: null
+        };
+        localStorage.setItem(GOLD_PRICE_CACHE_KEY, JSON.stringify(next));
+        if (active) setGoldPrice(next);
+      } catch (error) {
+        if (active) {
+          setGoldPrice((current) => ({
+            ...current,
+            stale: true,
+            error: error.name === "AbortError" ? "Pembaruan harga terlalu lama." : "Harga emas gagal diperbarui."
+          }));
+        }
+      } finally {
+        window.clearTimeout(timeout);
+        inFlight = false;
+      }
+    }
+
+    syncGoldPrice();
+    const interval = window.setInterval(syncGoldPrice, GOLD_REFRESH_MS);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -272,8 +336,9 @@ function App() {
     refreshData();
   }, [boot.ready, boot.demo, boot.session?.user?.id]);
 
-  const metrics = useMemo(() => getMetrics(data), [data]);
-  const budgets = useMemo(() => enrichBudgets(data), [data]);
+  const pricedData = useMemo(() => applyGoldPrice(data, goldPrice.perGram), [data, goldPrice.perGram]);
+  const metrics = useMemo(() => getMetrics(pricedData), [pricedData]);
+  const budgets = useMemo(() => enrichBudgets(pricedData), [pricedData]);
   const isAppRoute = ui.route.startsWith("app/");
   const currentPage = isAppRoute ? ui.route.split("/")[1] || "dashboard" : "dashboard";
   const plan = "pro";
@@ -472,7 +537,11 @@ function App() {
 
   async function saveWallet(values) {
     if (guardDemo()) return;
+    const isGold = values.type === "gold";
+    const goldGrams = Math.max(0, number(values.gold_grams));
+    if (isGold && goldGrams <= 0) return notify("Jumlah emas harus lebih dari 0 gram.", "warning");
     if (boot.backend === "fintrack") {
+      if (isGold) return notify("Dompet emas membutuhkan schema DompetRapi terbaru.", "warning");
       const payload = {
         id: values.id || makeId("wallet"),
         name: values.name,
@@ -493,8 +562,9 @@ function App() {
       user_id: boot.session.user.id,
       name: values.name,
       type: values.type,
-      balance: number(values.balance),
-      color: values.color || "#0f8b8d"
+      balance: isGold ? 0 : number(values.balance),
+      gold_grams: isGold ? goldGrams : 0,
+      color: values.color || (isGold ? "#ca8a04" : "#0f8b8d")
     };
     const query = values.id
       ? boot.supabase.from("wallets").update(payload).eq("id", values.id).eq("user_id", boot.session.user.id)
@@ -509,6 +579,10 @@ function App() {
     if (guardDemo()) return;
     const wallet = data.wallets.find((item) => item.id === values.wallet_id);
     const amount = number(values.amount);
+
+    if (wallet?.type === "gold") {
+      return notify("Dompet emas dikelola dalam gram dan tidak menerima transaksi rupiah biasa.", "warning");
+    }
 
     if (values.type === "expense" && wallet && number(wallet.balance) < amount) {
       return notify(`Saldo ${wallet.name} tidak cukup! (Sisa: ${money(wallet.balance)})`, "danger");
@@ -674,7 +748,7 @@ function App() {
       slot: "advisor",
       prompt: userQuestion,
       system: `Kamu adalah ShanIA, AI sahabat keuangan pribadi untuk ${fullName} di Indonesia, timezone Asia/Jakarta. Jawab dalam bahasa Indonesia yang santai, praktis, dan empatik. Panggil user dengan "bestie" sewajarnya. Beri saran keuangan yang jelas dan aman. Jangan mengklaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
-      context: buildFinanceContext(data, budgets, metrics),
+      context: buildFinanceContext(pricedData, budgets, metrics),
       onStart: () => {
         setUi((current) => ({
           ...current,
@@ -728,7 +802,7 @@ function App() {
       prompt: text || "Scan struk ini bestie! Kasih tau gue ada apa aja.",
       imageUrl,
       system: `Kamu ShanIA, AI yang membantu ${fullName} scan struk belanja di Indonesia, timezone Asia/Jakarta. Analisis struk dan berikan ringkasan singkat. Setelah ringkasan, WAJIB tambahkan blok JSON di paling akhir response dalam format ini:\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal tidak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
-      context: buildFinanceContext(data, budgets, metrics),
+      context: buildFinanceContext(pricedData, budgets, metrics),
       onSuccess: (lines, payload) => {
         const cleanLines = lines.filter(l => !l.match(/^[\{\["]/));
         setUi((current) => ({ ...current, receipt: cleanLines.length ? cleanLines : lines }));
@@ -752,7 +826,7 @@ function App() {
       slot: "report",
       prompt: `Buatin laporan analisis keuangan ${userName} bulan ini dong! Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
       system: `Kamu ShanIA, AI yang membantu analisis keuangan ${fullName} di Indonesia, timezone Asia/Jakarta. Buat laporan dalam bahasa Indonesia yang santai, informatif, kalimat pendek, dan actionable. Panggil user dengan "bestie" sewajarnya. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
-      context: buildFinanceContext(data, budgets, metrics)
+      context: buildFinanceContext(pricedData, budgets, metrics)
     });
   }
 
@@ -869,7 +943,8 @@ function App() {
           page={currentPage}
           ui={ui}
           setUi={setUi}
-          data={data}
+          data={pricedData}
+          goldPrice={goldPrice}
           budgets={budgets}
           metrics={metrics}
           plan={plan}
@@ -1427,11 +1502,12 @@ function AccountPanel({ profile, demo, plan, backend, theme, setTheme, onLogout,
   );
 }
 
-function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
+function Wallets({ data, ui, setUi, demo, backend, goldPrice, onWallet, onDelete }) {
   const edit = data.wallets.find((item) => item.id === ui.walletEditId);
 
   return (
     <div className="single-col">
+      <GoldPriceBar goldPrice={goldPrice} />
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
         <button className="btn primary" onClick={() => setUi(c => ({ ...c, walletModal: true }))}>+ Tambah Dompet</button>
       </div>
@@ -1450,7 +1526,13 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
                 <p>{walletType(wallet.type)}</p>
               </div>
             </div>
-            <strong>{money(wallet.balance)}</strong>
+            <strong>{wallet.type === "gold" && !goldPrice?.perGram ? "Menunggu harga" : money(wallet.balance)}</strong>
+            {wallet.type === "gold" ? (
+              <div className="gold-wallet-meta">
+                <b>{formatGrams(wallet.gold_grams)} g</b>
+                <span>{goldPrice?.perGram ? `${money(goldPrice.perGram)} / gram` : "Harga belum tersedia"}</span>
+              </div>
+            ) : null}
             <div className="tile-actions">
               <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id, walletModal: true }))}><Pencil size={16} /></button>
               <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Dompet dihapus.")}><Trash2 size={16} /></button>
@@ -1460,9 +1542,32 @@ function Wallets({ data, ui, setUi, demo, backend, onWallet, onDelete }) {
       </section>
 
       {ui.walletModal && (
-        <WalletModal edit={edit} ui={ui} setUi={setUi} demo={demo} backend={backend} onWallet={onWallet} />
+        <WalletModal edit={edit} ui={ui} setUi={setUi} demo={demo} backend={backend} goldPrice={goldPrice} onWallet={onWallet} />
       )}
     </div>
+  );
+}
+
+function GoldPriceBar({ goldPrice }) {
+  const hasPrice = number(goldPrice?.perGram) > 0;
+  return (
+    <section className="gold-market-strip" aria-label="Harga emas terbaru">
+      <span className="gold-market-icon"><Gem size={20} /></span>
+      <div>
+        <small>Harga emas per gram</small>
+        <strong>{hasPrice ? money(goldPrice.perGram) : "Menghubungkan..."}</strong>
+      </div>
+      <div className="gold-market-status">
+        <span className={goldPrice?.stale ? "gold-status stale" : "gold-status live"}>
+          <i aria-hidden="true" />
+          {goldPrice?.stale ? "Harga terakhir" : "Live · 5 dtk"}
+        </span>
+        <small>
+          {goldPrice?.fetchedAt ? `Dicek ${formatClock(goldPrice.fetchedAt)}` : "Menunggu pembaruan"}
+          {goldPrice?.source ? ` · ${goldPrice.source}` : ""}
+        </small>
+      </div>
+    </section>
   );
 }
 
@@ -1682,13 +1787,13 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
                   amount: String(ui.scanResult.total || ""),
                   transaction_date: ui.scanResult.date || isoDate(new Date()),
                   note: ui.scanResult.note || ui.scanResult.merchant || "",
-                  wallet_id: data.wallets[0]?.id || "",
+                  wallet_id: data.wallets.find((wallet) => wallet.type !== "gold")?.id || "",
                   category_id: data.categories.find(c => c.name?.toLowerCase().includes((ui.scanResult.category || "").toLowerCase()))?.id || ""
                 }}
                 fields={[
                   ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]]],
                   ["amount", "money", "Total", String(ui.scanResult.total || "0")],
-                  ["wallet_id", "select", "Dompet", data.wallets.map(w => [w.id, w.name])],
+                  ["wallet_id", "select", "Dompet", data.wallets.filter((wallet) => wallet.type !== "gold").map(w => [w.id, w.name])],
                   ["category_id", "select", "Kategori", data.categories.filter(c => c.type === "expense").map(c => [c.id, c.name])],
                   ["transaction_date", "date", "Tanggal"],
                   ["note", "text", "Catatan", ui.scanResult.note || ui.scanResult.merchant || ""]
@@ -1902,6 +2007,34 @@ function MoneyInput({ name, defaultValue, disabled, placeholder, marker }) {
   );
 }
 
+function GoldGramInput({ name, defaultValue, disabled, perGram }) {
+  const [value, setValue] = useState(
+    defaultValue !== undefined && defaultValue !== null && defaultValue !== "" ? String(defaultValue) : ""
+  );
+  const grams = Math.max(0, number(value));
+  const estimatedValue = grams * number(perGram);
+
+  return (
+    <div className="gold-input-wrapper">
+      <input
+        name={name}
+        type="number"
+        inputMode="decimal"
+        min="0.000001"
+        step="0.000001"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        disabled={disabled}
+        placeholder="0.01"
+        required
+      />
+      <span>
+        {perGram ? `Estimasi ${money(estimatedValue)} · ${money(perGram)} / gram` : "Menunggu harga emas terbaru"}
+      </span>
+    </div>
+  );
+}
+
 function SmartForm({ fields, defaults = {}, disabled, submitLabel, onSubmit, beforeSubmit }) {
   return (
     <form className="smart-form" onSubmit={(event) => {
@@ -1947,6 +2080,19 @@ function SmartForm({ fields, defaults = {}, disabled, submitLabel, onSubmit, bef
                 placeholder={typeof options === "string" ? options : ""}
                 disabled={disabled}
                 marker={marker}
+              />
+            </label>
+          );
+        }
+        if (type === "gold") {
+          return (
+            <label key={name}>
+              {label}
+              <GoldGramInput
+                name={name}
+                defaultValue={defaults?.[name] !== undefined ? defaults[name] : ""}
+                disabled={disabled}
+                perGram={options}
               />
             </label>
           );
@@ -2175,6 +2321,7 @@ function mapFintrackData(rows, userId) {
       name: wallet.name,
       type: wallet.kind,
       balance: wallet.balance,
+      gold_grams: number(wallet.gold_grams),
       color: wallet.color || "#0f766e"
     })),
     categories: rows.categories.map((category) => ({
@@ -2242,6 +2389,41 @@ function emptyData() {
   return { wallets: [], categories: [], transactions: [], budgets: [], goals: [], aiEvents: [] };
 }
 
+function loadGoldPriceCache() {
+  const fallback = {
+    perGram: 0,
+    perKg: 0,
+    source: "",
+    updatedAt: null,
+    fetchedAt: null,
+    stale: true,
+    error: null
+  };
+  try {
+    const cached = JSON.parse(localStorage.getItem(GOLD_PRICE_CACHE_KEY) || "null");
+    return number(cached?.perGram) > 0 ? { ...fallback, ...cached, stale: true } : fallback;
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function applyGoldPrice(data, perGram) {
+  const price = number(perGram);
+  return {
+    ...data,
+    wallets: data.wallets.map((wallet) => {
+      if (wallet.type !== "gold") return wallet;
+      const grams = Math.max(0, number(wallet.gold_grams));
+      return {
+        ...wallet,
+        gold_grams: grams,
+        gold_price_per_gram: price,
+        balance: price > 0 ? grams * price : number(wallet.balance)
+      };
+    })
+  };
+}
+
 function demoData() {
   const categories = DEFAULT_CATEGORIES.map((category, index) => ({ id: `cat-${index}`, user_id: "demo", ...category }));
   const id = (name) => categories.find((item) => item.name === name)?.id;
@@ -2251,7 +2433,8 @@ function demoData() {
       { id: "wallet-1", name: "BCA Harian", type: "bank", balance: 12800000, color: "#0f766e" },
       { id: "wallet-2", name: "GoPay", type: "ewallet", balance: 640000, color: "#2563eb" },
       { id: "wallet-3", name: "Cash", type: "cash", balance: 350000, color: "#f59e0b" },
-      { id: "wallet-4", name: "Kartu Kredit", type: "credit_card", balance: -1250000, color: "#fb7185" }
+      { id: "wallet-4", name: "Kartu Kredit", type: "credit_card", balance: -1250000, color: "#fb7185" },
+      { id: "wallet-5", name: "Emas tabungan", type: "gold", balance: 0, gold_grams: 0.01, color: "#ca8a04" }
     ],
     transactions: [
       { id: "tx-1", wallet_id: "wallet-1", category_id: id("Gaji"), type: "income", amount: 12000000, transaction_date: periodStart(), note: "Gaji bulanan" },
@@ -2475,6 +2658,20 @@ function walletType(value) {
   return WALLET_TYPES.find(([key]) => key === value)?.[1] || value;
 }
 
+function formatGrams(value) {
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 6 }).format(number(value));
+}
+
+function formatClock(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(date);
+}
+
 function money(value) {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(number(value));
 }
@@ -2557,7 +2754,11 @@ function buildFinanceContext(data, budgets, metrics) {
     wallets: data.wallets.map((wallet) => ({
       name: wallet.name,
       type: wallet.type,
-      balance: number(wallet.balance)
+      balance: number(wallet.balance),
+      ...(wallet.type === "gold" ? {
+        gold_grams: number(wallet.gold_grams),
+        gold_price_per_gram: number(wallet.gold_price_per_gram)
+      } : {})
     })),
     goals: data.goals.map((goal) => ({
       name: goal.name,
@@ -2669,6 +2870,7 @@ function getGreeting(name) {
 }
 
 function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
+  const availableWallets = data.wallets.filter((wallet) => wallet.type !== "gold");
   return (
     <>
       <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, txModal: false }))} style={{ display: 'block' }} />
@@ -2684,11 +2886,11 @@ function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
         </div>
         <SmartForm
           disabled={demo}
-          defaults={{ type: "expense", amount: "", transaction_date: isoDate(new Date()), note: "", wallet_id: data.wallets[0]?.id || "", category_id: data.categories.filter(c => c.type === "expense")[0]?.id || "" }}
+          defaults={{ type: "expense", amount: "", transaction_date: isoDate(new Date()), note: "", wallet_id: availableWallets[0]?.id || "", category_id: data.categories.filter(c => c.type === "expense")[0]?.id || "" }}
           fields={[
             ["type", "select", "Tipe", [["expense", "Pengeluaran"], ["income", "Pemasukan"]]],
             ["amount", "money", "Nominal", "50000"],
-            ["wallet_id", "select", "Dompet", data.wallets.map(w => [w.id, w.name])],
+            ["wallet_id", "select", "Dompet", availableWallets.map(w => [w.id, w.name])],
             ["category_id", "select", "Kategori", data.categories.map(c => [c.id, c.name])],
             ["transaction_date", "date", "Tanggal"],
             ["note", "text", "Catatan", "Beli kopi"]
@@ -2701,7 +2903,9 @@ function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
   );
 }
 
-function WalletModal({ edit, ui, setUi, demo, backend, onWallet }) {
+function WalletModal({ edit, ui, setUi, demo, backend, goldPrice, onWallet }) {
+  const [walletKind, setWalletKind] = useState(edit?.type || "bank");
+  const isGold = walletKind === "gold";
   return (
     <>
       <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, walletModal: false, walletEditId: null }))} style={{ display: 'block' }} />
@@ -2717,12 +2921,13 @@ function WalletModal({ edit, ui, setUi, demo, backend, onWallet }) {
         </div>
         <SmartForm
           disabled={demo}
-          defaults={edit}
+          defaults={{ ...edit, type: walletKind, balance: isGold ? 0 : edit?.balance, gold_grams: edit?.gold_grams || "" }}
           fields={[
             ["id", "hidden"],
-            ["name", "text", "Nama dompet", "BCA Harian"],
-            ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES],
-            ["balance", "money", "Saldo", "0"],
+            ["name", "text", "Nama dompet", isGold ? "Emas tabungan" : "BCA Harian"],
+            ["type", "select", "Jenis", backend === "fintrack" ? WALLET_TYPES.filter(([value]) => ["bank", "ewallet", "cash", "investment"].includes(value)) : WALLET_TYPES, setWalletKind],
+            isGold ? ["balance", "hidden"] : ["balance", "money", "Saldo", "0"],
+            isGold ? ["gold_grams", "gold", "Jumlah emas (gram)", goldPrice?.perGram] : ["gold_grams", "hidden"],
             ["color", "datalist", "Warna / Emoji", [
               ["#0f766e", "🟢 Teal (Default)"],
               ["#2563eb", "🔵 Bank Biru"],
@@ -2741,6 +2946,7 @@ function WalletModal({ edit, ui, setUi, demo, backend, onWallet }) {
           ]}
           submitLabel={edit ? "Simpan Dompet" : "Tambah Dompet"}
           onSubmit={(v) => {
+            if (v.type === "gold" && (!edit || v.color === "#0f766e")) v.color = "#ca8a04";
             onWallet(v);
             setUi(c => ({ ...c, walletModal: false, walletEditId: null }));
           }}
