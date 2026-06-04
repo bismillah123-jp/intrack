@@ -33,24 +33,31 @@ Alternatif build-time: copy `.env.example` ke `.env` dan isi:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
+GROQ_API_KEY=your-groq-api-key
+GEMINI_API_KEY=your-gemini-api-key
 BIGMODEL_API_KEY=your-bigmodel-api-key
 ```
 
-## BigModel GLM
+## Multi-provider AI
 
-Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js` dan endpoint BigModel `https://open.bigmodel.cn/api/paas/v4/chat/completions`.
+Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js`. Nama endpoint `/api/openrouter` tetap dipertahankan agar frontend lama tetap kompatibel.
 
-- Chat advisor dan report memakai model `glm-4.7-flash`.
-- Scan struk/gambar memakai model `glm-4.6v-flash`.
+- AI Advisor dan laporan memakai Groq `qwen/qwen3-32b`.
+- Request teks ringan memakai Groq `llama-3.1-8b-instant`.
+- Scan struk/gambar memakai Gemini `gemini-2.5-flash-lite`.
+- Jika provider utama gagal, terkena rate limit, atau key belum tersedia, sistem otomatis fallback ke BigModel `glm-4.7-flash` atau `glm-4.6v-flash`.
 - AI Chat/Advisor memakai streaming response. Jika koneksi terputus, teks parsial terakhir tetap ditampilkan di chat.
+- Fallback streaming hanya dilakukan sebelum teks pertama diterima agar jawaban dari dua model tidak tercampur.
 
 Untuk production di Vercel, tambahkan environment variable server:
 
 ```env
+GROQ_API_KEY=your-groq-api-key
+GEMINI_API_KEY=your-gemini-api-key
 BIGMODEL_API_KEY=your-bigmodel-api-key
 ```
 
-Jangan menaruh BigModel key di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser. Endpoint juga menerima `ZHIPU_API_KEY` sebagai alias server-only jika kamu lebih suka nama itu.
+Jangan menaruh API key AI di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser. Endpoint juga menerima `GOOGLE_AI_API_KEY` dan `ZHIPU_API_KEY` sebagai alias server-only.
 
 ## Routes
 
@@ -66,6 +73,6 @@ Jangan menaruh BigModel key di `VITE_` env karena nilai `VITE_` ikut masuk ke bu
 ## Catatan MVP
 
 - Tidak ada sync rekening bank otomatis.
-- AI advisor dan report analyzer memakai BigModel `glm-4.7-flash`; receipt scanner memakai `glm-4.6v-flash` lewat `/api/openrouter`.
+- AI memakai routing Groq + Gemini dengan BigModel sebagai fallback lewat `/api/openrouter`.
 - Produk sekarang Pro-only; tabel `subscriptions` tetap dipakai untuk status akun Pro.
 - Tema gelap/terang dan warna aksen custom disimpan di browser lewat `localStorage`.

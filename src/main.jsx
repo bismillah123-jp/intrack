@@ -767,18 +767,24 @@ function App() {
     }
 
     let streamedText = "";
-    let streamedModel = imageUrl ? "glm-4.6v-flash" : "glm-4.7-flash";
+    let streamedProvider = "";
+    let streamedModel = imageUrl
+      ? "gemini-2.5-flash-lite"
+      : slot === "advisor" || slot === "report"
+        ? "qwen/qwen3-32b"
+        : "llama-3.1-8b-instant";
     try {
       const response = await fetch("/api/openrouter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, system, context, imageUrl, stream: stream && !imageUrl })
+        body: JSON.stringify({ task: slot, prompt, system, context, imageUrl, stream: stream && !imageUrl })
       });
       const contentType = response.headers.get("content-type") || "";
       if (stream && !imageUrl && response.ok && response.body) {
         const payload = await readAiStream(response, {
           onMeta: (event) => {
             streamedModel = event.model || streamedModel;
+            streamedProvider = event.provider || streamedProvider;
           },
           onDelta: (text) => {
             streamedText += text;
@@ -787,13 +793,14 @@ function App() {
         });
         streamedText = payload.text || streamedText;
         streamedModel = payload.model || streamedModel;
+        streamedProvider = payload.provider || streamedProvider;
         const lines = splitAiText(streamedText);
         if (onSuccess) {
           onSuccess(lines, { text: streamedText, model: streamedModel, streamed: true });
         } else {
           setUi((current) => ({ ...current, [slot]: lines }));
         }
-        logAi(slot, { lines, model: streamedModel, streamed: true }, prompt);
+        logAi(slot, { lines, model: streamedModel, provider: streamedProvider, streamed: true }, prompt);
         return;
       }
       if (!contentType.includes("application/json")) {
@@ -807,7 +814,7 @@ function App() {
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
-      logAi(slot, { lines, model: payload.model || (imageUrl ? "glm-4.6v-flash" : "glm-4.7-flash") }, prompt);
+      logAi(slot, { lines, model: payload.model || streamedModel, provider: payload.provider }, prompt);
     } catch (error) {
       if (error.partialText && !streamedText) {
         streamedText = error.partialText;
@@ -815,13 +822,16 @@ function App() {
       if (error.model) {
         streamedModel = error.model;
       }
+      if (error.provider) {
+        streamedProvider = error.provider;
+      }
       const reason = (error.message || "AI tidak bisa dihubungi").replace(/[.]+$/, "");
       const fallback = streamedText
         ? `${streamedText.trim()}\n\nRespons terputus: ${reason}. Teks di atas adalah jawaban terakhir yang berhasil diterima.`
         : `AI belum aktif: ${reason}.`;
       const lines = splitAiText(fallback);
       if (onError) {
-        onError(lines, { text: fallback, partial: streamedText, model: streamedModel });
+        onError(lines, { text: fallback, partial: streamedText, model: streamedModel, provider: streamedProvider });
       } else {
         setUi((current) => ({ ...current, [slot]: lines }));
       }
@@ -2565,12 +2575,14 @@ async function readAiStream(response, { onMeta, onDelta } = {}) {
   let buffer = "";
   let text = "";
   let model = "";
+  let provider = "";
 
   const handleLine = (line) => {
     if (!line.trim()) return;
     const event = JSON.parse(line);
     if (event.type === "meta") {
       model = event.model || model;
+      provider = event.provider || provider;
       if (onMeta) onMeta(event);
     } else if (event.type === "delta") {
       const delta = event.text || "";
@@ -2579,11 +2591,13 @@ async function readAiStream(response, { onMeta, onDelta } = {}) {
     } else if (event.type === "done") {
       text = event.text || text;
       model = event.model || model;
+      provider = event.provider || provider;
     } else if (event.type === "error") {
       if (event.partial && !text) text = event.partial;
       const error = new Error(event.message || "Streaming AI terputus.");
       error.partialText = text;
       error.model = event.model || model;
+      error.provider = event.provider || provider;
       throw error;
     }
   };
@@ -2604,7 +2618,7 @@ async function readAiStream(response, { onMeta, onDelta } = {}) {
     handleLine(buffer);
   }
 
-  return { text, model };
+  return { text, model, provider };
 }
 
 function normalizeChatMessages(messages) {

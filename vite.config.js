@@ -1,10 +1,10 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
-import { callBigModel, streamBigModel } from "./api/openrouter.js";
+import { callAI, streamAI } from "./api/openrouter.js";
 
-function bigModelDevApi() {
+function aiDevApi() {
   return {
-    name: "dompetrapi-bigmodel-dev-api",
+    name: "dompetrapi-ai-dev-api",
     configureServer(server) {
       server.middlewares.use("/api/openrouter", async (req, res, next) => {
         if (req.method !== "POST") return next();
@@ -14,10 +14,10 @@ function bigModelDevApi() {
           for await (const chunk of req) raw += chunk;
           const body = raw ? JSON.parse(raw) : {};
           if (body.stream) {
-            await streamBigModel(body, res);
+            await streamAI(body, res);
             return;
           }
-          const result = await callBigModel(body);
+          const result = await callAI(body);
           res.setHeader("Content-Type", "application/json");
           res.statusCode = 200;
           res.end(JSON.stringify(result));
@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
 
   return {
-    plugins: [react(), bigModelDevApi()],
+    plugins: [react(), aiDevApi()],
     server: {
       host: "127.0.0.1",
       port: 8787,
