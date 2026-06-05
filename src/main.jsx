@@ -725,11 +725,47 @@ function App() {
         refreshData(message);
         return;
       }
+      if (table === "transactions") {
+        const transaction = data.transactions.find((item) => item.id === id);
+        const wallet = data.wallets.find((item) => item.id === transaction?.wallet_id);
+        const nextBalance = wallet && transaction ? number(wallet.balance) + reverseTransactionDelta(transaction) : null;
+        if (wallet && transaction && !isDebtWallet(wallet) && nextBalance < 0) {
+          return notify(`Transaksi tidak bisa dihapus karena saldo ${wallet.name} akan minus.`, "warning");
+        }
+        const { error } = await boot.supabase.from("fintrack_transactions").delete().eq("id", id);
+        if (error) return notify(error.message);
+        if (wallet && transaction) {
+          const update = await boot.supabase.from("fintrack_wallets").update({ balance: nextBalance }).eq("id", wallet.id);
+          if (update.error) return notify(update.error.message);
+        }
+        refreshData(message || "Transaksi dihapus dan saldo disesuaikan.");
+        return;
+      }
       const mappedTable = tableMap[table];
       if (!mappedTable) return notify("Tabel tidak didukung schema fintrack.");
       const { error } = await boot.supabase.from(mappedTable).delete().eq("id", id);
       if (error) return notify(error.message);
       refreshData(message);
+      return;
+    }
+    if (table === "transactions") {
+      const transaction = data.transactions.find((item) => item.id === id);
+      const wallet = data.wallets.find((item) => item.id === transaction?.wallet_id);
+      const nextBalance = wallet && transaction ? number(wallet.balance) + reverseTransactionDelta(transaction) : null;
+      if (wallet && transaction && !isDebtWallet(wallet) && nextBalance < 0) {
+        return notify(`Transaksi tidak bisa dihapus karena saldo ${wallet.name} akan minus.`, "warning");
+      }
+      const { error } = await boot.supabase.from("transactions").delete().eq("id", id).eq("user_id", boot.session.user.id);
+      if (error) return notify(error.message);
+      if (wallet && transaction) {
+        const update = await boot.supabase
+          .from("wallets")
+          .update({ balance: nextBalance })
+          .eq("id", wallet.id)
+          .eq("user_id", boot.session.user.id);
+        if (update.error) return notify(update.error.message);
+      }
+      refreshData(message || "Transaksi dihapus dan saldo disesuaikan.");
       return;
     }
     const { error } = await boot.supabase.from(table).delete().eq("id", id).eq("user_id", boot.session.user.id);
@@ -2734,6 +2770,15 @@ function hexToRgb(hex) {
 
 function sum(items, key) {
   return items.reduce((total, item) => total + number(item[key]), 0);
+}
+
+function reverseTransactionDelta(transaction) {
+  const amount = number(transaction?.amount);
+  return transaction?.type === "income" ? -amount : amount;
+}
+
+function isDebtWallet(wallet) {
+  return ["credit_card", "paylater"].includes(wallet?.type);
 }
 
 function number(value) {

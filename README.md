@@ -93,6 +93,23 @@ BIGMODEL_API_KEY=your-bigmodel-api-key
 
 Channel eksternal seperti bot WhatsApp bisa dibuat nanti di folder/project terpisah sebagai proxy tipis ke endpoint yang sama. Untuk mode itu, endpoint juga mendukung token `WHATSAPP_BOT_TOKEN` dan mapping `whatsapp_user_links`.
 
+## WhatsApp Bot
+
+Folder `BOT/` berisi bot WhatsApp berbasis Baileys dari base `bismillah123-jp/whatsapp-bot-builder` yang sudah disederhanakan menjadi proxy DompetRapi.
+
+```powershell
+cd BOT
+npm install
+copy .env.example .env
+npm start
+```
+
+Isi `BACKEND_API_TOKEN` di `BOT/.env` dengan nilai yang sama seperti `WHATSAPP_BOT_TOKEN` di env aplikasi finance.
+
+Bot memakai mode konfirmasi untuk semua aksi yang mengubah data. Contoh: transaksi, dompet, kategori, budget, scan struk, dan hapus transaksi akan diminta persetujuan dulu; balas `ya` untuk eksekusi atau `batal` untuk membatalkan. Jika saldo dompet tidak cukup, transaksi pengeluaran ditolak sebelum masuk tahap konfirmasi.
+
+Saat transaksi dihapus, saldo dompet dibalik otomatis: hapus pengeluaran menambah saldo, hapus pemasukan mengurangi saldo.
+
 ## Routes
 
 - `/` auth/login

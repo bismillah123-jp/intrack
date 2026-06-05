@@ -119,6 +119,14 @@ dist/
 dist-ssr/
 *.local
 
+# WhatsApp bot runtime
+BOT/node_modules/
+BOT/.env
+BOT/session/
+BOT/data/
+BOT/.wwebjs_auth/
+BOT/.wwebjs_cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

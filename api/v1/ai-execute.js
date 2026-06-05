@@ -19,6 +19,7 @@ const WALLET_TYPES = new Set(["bank", "ewallet", "cash", "credit_card", "paylate
 const FINANCE_ACTIONS = new Set([
   "general_chat",
   "create_transaction",
+  "delete_transaction",
   "create_wallet",
   "create_category",
   "create_budget",
@@ -28,6 +29,7 @@ const FINANCE_ACTIONS = new Set([
   "clarify",
   "none"
 ]);
+const MUTATING_ACTIONS = new Set(["create_transaction", "delete_transaction", "create_wallet", "create_category", "create_budget"]);
 
 export async function handleAiExecute(body = {}, headers = {}) {
   const payload = normalizePayload(body);
@@ -40,12 +42,45 @@ export async function handleAiExecute(body = {}, headers = {}) {
   const context = buildFinanceContext(pricedData, budgets, metrics);
 
   if (payload.image_base64) {
-    const receiptResult = await handleReceipt({ supabase, actor, payload, data: pricedData, context });
+    const receiptResult = await handleReceipt({ supabase, actor, payload, data: pricedData, context, preview: payload.preview });
     await logAiEvent(supabase, actor.appUserId, "receipt", payload.message, receiptResult);
     return receiptResult;
   }
 
   const intent = await classifyMessage(payload.message, context);
+  if (payload.preview && actor.channel === "whatsapp") {
+    if (!MUTATING_ACTIONS.has(intent.action)) {
+      const result = await executeIntent({ supabase, appUserId: actor.appUserId, message: payload.message, intent, data: pricedData, metrics, budgets, context });
+      return {
+        handled: true,
+        userId: actor.externalUserId,
+        appUserId: actor.appUserId,
+        channel: actor.channel,
+        action: intent.action,
+        changed: false,
+        needsConfirmation: false,
+        source: "dompetrapi-ai-execute",
+        model: result.model || intent.model || "",
+        reply: result.reply || FALLBACK_REPLY
+      };
+    }
+
+    const preview = await previewIntent({ intent, data: pricedData });
+    return {
+      handled: true,
+      userId: actor.externalUserId,
+      appUserId: actor.appUserId,
+      channel: actor.channel,
+      action: intent.action,
+      changed: false,
+      needsConfirmation: Boolean(preview.needsConfirmation),
+      blocked: Boolean(preview.blocked),
+      source: "dompetrapi-ai-execute",
+      model: intent.model || "",
+      reply: preview.reply || "Siap."
+    };
+  }
+
   const result = await executeIntent({ supabase, appUserId: actor.appUserId, message: payload.message, intent, data: pricedData, metrics, budgets, context });
   const response = {
     handled: true,
@@ -97,10 +132,11 @@ function normalizePayload(body) {
   const userId = rawUserId ? normalizeWaId(rawUserId) : "";
   const message = String(body.message || body.caption || "").trim();
   const imageBase64 = normalizeImageDataUrl(body.image_base64 || body.imageBase64 || body.imageUrl);
+  const preview = Boolean(body.preview || body.dryRun);
 
   if (!message && !imageBase64) throw httpError("message atau image_base64 wajib dikirim.", 400);
 
-  return { userId, message, image_base64: imageBase64 };
+  return { userId, message, image_base64: imageBase64, preview };
 }
 
 function normalizeWaId(value) {
@@ -186,7 +222,13 @@ async function resolveWhatsappUser(supabase, waUserId) {
     .eq("wa_user_id", waUserId)
     .maybeSingle();
 
-  if (linked.data?.user_id) return { appUserId: linked.data.user_id, waUserId };
+  if (linked.data?.user_id) {
+    return {
+      appUserId: linked.data.user_id,
+      externalUserId: waUserId,
+      channel: "whatsapp"
+    };
+  }
   if (linked.error && linked.error.code !== "PGRST116" && linked.error.code !== "42P01") {
     throw linked.error;
   }
@@ -288,6 +330,7 @@ Return only valid JSON, tanpa markdown.
 Actions:
 - general_chat: sapaan/ngobrol biasa.
 - create_transaction: catat pemasukan/pengeluaran.
+- delete_transaction: hapus transaksi yang sudah tercatat.
 - create_wallet: buat dompet baru, termasuk dompet emas.
 - create_category: buat kategori.
 - create_budget: set budget kategori.
@@ -299,11 +342,12 @@ Actions:
 
 Schema:
 {
-  "action": "general_chat|create_transaction|create_wallet|create_category|create_budget|balance_summary|gold_price|insight|clarify|none",
+  "action": "general_chat|create_transaction|delete_transaction|create_wallet|create_category|create_budget|balance_summary|gold_price|insight|clarify|none",
   "reply": "isi untuk general_chat atau clarify",
   "title": "optional",
   "amount": 25000,
   "type": "income|expense",
+  "transactionId": "optional",
   "walletName": "optional",
   "walletKind": "cash|bank|ewallet|credit_card|paylater|investment|gold",
   "gold_grams": 0.01,
@@ -316,6 +360,7 @@ Schema:
 Nominal wajib angka rupiah. 50k jadi 50000. 2.5jt jadi 2500000.
 Emas wajib gram, misalnya 0.01g jadi gold_grams 0.01.
 Jangan mengarang nominal atau gram. Kalau kurang detail, action clarify.
+Untuk delete_transaction, gunakan amount/note/walletName/date bila user menyebut detail. Kalau user bilang transaksi terakhir/terbaru, action delete_transaction tanpa mengarang detail.
 
 Konteks finance:
 ${context}
@@ -357,6 +402,8 @@ async function executeIntent({ supabase, appUserId, message, intent, data, metri
       return createBudget(supabase, appUserId, intent, data);
     case "create_transaction":
       return createTransaction(supabase, appUserId, intent, data);
+    case "delete_transaction":
+      return deleteTransaction(supabase, appUserId, intent, data);
     case "insight": {
       const result = await callAI({
         task: "advisor",
@@ -371,7 +418,148 @@ async function executeIntent({ supabase, appUserId, message, intent, data, metri
   }
 }
 
-async function handleReceipt({ supabase, actor, payload, data, context }) {
+async function previewIntent({ intent, data }) {
+  if (!MUTATING_ACTIONS.has(intent.action)) {
+    return { needsConfirmation: false, reply: intent.reply || previewReadonlyReply(intent, data) };
+  }
+
+  switch (intent.action) {
+    case "create_transaction":
+      return previewTransaction(intent, data);
+    case "delete_transaction":
+      return previewDeleteTransaction(intent, data);
+    case "create_wallet":
+      return previewWallet(intent);
+    case "create_category":
+      return previewCategory(intent);
+    case "create_budget":
+      return previewBudget(intent, data);
+    default:
+      return { needsConfirmation: false, reply: "Bestie, aku belum nangkep maksudnya. Coba tulis lebih jelas ya." };
+  }
+}
+
+function previewReadonlyReply(intent, data) {
+  if (intent.action === "balance_summary") return formatBalanceSummary(data, getMetrics(data));
+  if (intent.action === "gold_price") return formatGoldPrice(data.goldPrice);
+  return intent.reply || "Siap bestie.";
+}
+
+function previewTransaction(intent, data) {
+  const amount = normalizeAmount(intent.amount);
+  if (!amount) return { needsConfirmation: false, reply: "Nominalnya belum kebaca, bestie. Contoh: kopi 25rb gopay." };
+
+  const type = intent.type === "income" ? "income" : "expense";
+  const wallet = pickWallet(data.wallets, intent.walletName);
+  if (!wallet) return { needsConfirmation: false, reply: "Belum ada dompet rupiah yang bisa dipakai. Buat dompet dulu ya." };
+  if (wallet.type === "gold") return { needsConfirmation: false, reply: "Dompet emas pakai gram, jadi tidak bisa dipakai untuk transaksi rupiah biasa." };
+
+  if (type === "expense" && !isDebtWallet(wallet) && number(wallet.balance) < amount) {
+    return {
+      blocked: true,
+      needsConfirmation: false,
+      reply: `Saldo ${wallet.name} tidak cukup. Sisa ${money(wallet.balance)}, transaksi ${money(amount)} tidak bisa diproses.`
+    };
+  }
+
+  const categoryName = intent.categoryName || inferCategoryName(intent.title || intent.note || "");
+  const note = cleanText(intent.note || intent.title || (type === "income" ? "Pemasukan AI" : "Pengeluaran AI"));
+  return {
+    needsConfirmation: true,
+    reply: [
+      `Konfirmasi dulu ya:`,
+      `${type === "income" ? "Catat pemasukan" : "Catat pengeluaran"} ${money(amount)}`,
+      `Dompet: ${wallet.name}`,
+      `Kategori: ${categoryName}`,
+      note ? `Catatan: ${note}` : "",
+      "",
+      `Balas *ya* untuk simpan atau *batal* untuk membatalkan.`
+    ].filter(Boolean).join("\n")
+  };
+}
+
+function previewDeleteTransaction(intent, data) {
+  const transaction = findTransaction(data, intent);
+  if (!transaction) {
+    return { needsConfirmation: false, reply: "Transaksi yang mau dihapus belum ketemu. Sebutkan nominal, catatan, atau bilang hapus transaksi terakhir." };
+  }
+
+  const wallet = data.wallets.find((item) => item.id === transaction.wallet_id);
+  const category = data.categories.find((item) => item.id === transaction.category_id);
+  const amount = number(transaction.amount);
+  const nextBalance = wallet ? number(wallet.balance) + reverseTransactionDelta(transaction) : null;
+
+  if (wallet && !isDebtWallet(wallet) && nextBalance < 0) {
+    return {
+      blocked: true,
+      needsConfirmation: false,
+      reply: `Transaksi pemasukan ${money(amount)} tidak bisa dihapus karena saldo ${wallet.name} akan minus.`
+    };
+  }
+
+  return {
+    needsConfirmation: true,
+    reply: [
+      `Konfirmasi hapus transaksi ini:`,
+      `${transaction.type === "income" ? "Pemasukan" : "Pengeluaran"} ${money(amount)}`,
+      wallet ? `Dompet: ${wallet.name}` : "",
+      category ? `Kategori: ${category.name}` : "",
+      transaction.note ? `Catatan: ${transaction.note}` : "",
+      transaction.transaction_date ? `Tanggal: ${transaction.transaction_date}` : "",
+      wallet ? `Saldo ${wallet.name} akan ${transaction.type === "expense" ? "bertambah" : "berkurang"} ${money(amount)}.` : "",
+      "",
+      `Balas *ya* untuk hapus atau *batal* untuk membatalkan.`
+    ].filter(Boolean).join("\n")
+  };
+}
+
+function previewWallet(intent) {
+  const type = WALLET_TYPES.has(intent.walletKind) ? intent.walletKind : normalizeWalletKind(intent.walletKind || intent.type);
+  const rawName = cleanText(intent.walletName || intent.title);
+  const name = rawName || (type === "gold" ? "Emas tabungan" : "");
+  const goldGrams = type === "gold" ? normalizeGrams(intent.gold_grams) : 0;
+  const balance = type === "gold" ? 0 : Math.max(0, number(intent.amount));
+
+  if (!name) {
+    return { needsConfirmation: false, reply: "Nama dompetnya apa, bestie?" };
+  }
+
+  if (type !== "gold" && !hasIntentValue(intent.amount)) {
+    return { needsConfirmation: false, reply: `Saldo awal dompet ${name} berapa? Kalau kosong, balas 0.` };
+  }
+
+  if (type === "gold" && goldGrams <= 0) {
+    return { needsConfirmation: false, reply: "Bestie, jumlah emasnya belum jelas. Contoh: buat dompet emas 0.01 gram." };
+  }
+
+  return {
+    needsConfirmation: true,
+    reply: `Konfirmasi buat dompet ${name} tipe ${walletTypeLabel(type)} dengan isi awal ${type === "gold" ? `${formatGrams(goldGrams)} gram` : money(balance)}?\n\nBalas *ya* untuk buat atau *batal* untuk membatalkan.`
+  };
+}
+
+function previewCategory(intent) {
+  const name = cleanText(intent.categoryName || intent.title || intent.note);
+  const type = intent.categoryType === "income" ? "income" : "expense";
+  if (!name) return { needsConfirmation: false, reply: "Nama kategorinya apa, bestie?" };
+  return {
+    needsConfirmation: true,
+    reply: `Konfirmasi buat kategori ${name} untuk ${type === "income" ? "pemasukan" : "pengeluaran"}?\n\nBalas *ya* untuk buat atau *batal* untuk membatalkan.`
+  };
+}
+
+function previewBudget(intent, data) {
+  const amount = normalizeAmount(intent.amount);
+  if (!amount) return { needsConfirmation: false, reply: "Nominal budgetnya belum kebaca, bestie. Contoh: budget makan 1jt." };
+  const categoryName = cleanText(intent.categoryName) || "Belanja";
+  const existing = findByName(data.categories.filter((item) => item.type === "expense"), categoryName);
+  return {
+    needsConfirmation: true,
+    reply: `Konfirmasi set budget ${existing?.name || categoryName} bulan ini ke ${money(amount)}?\n\nBalas *ya* untuk simpan atau *batal* untuk membatalkan.`
+  };
+}
+
+async function handleReceipt({ supabase, actor, payload, data, context, preview = false }) {
   const result = await callAI({
     task: "receipt",
     prompt: payload.message || "Scan struk ini dan buat transaksi pengeluaran.",
@@ -397,9 +585,50 @@ Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
     };
   }
 
-  const category = await findOrCreateCategory(supabase, actor.appUserId, data.categories, receipt.category || "Belanja", "expense");
+  const receiptCategoryName = receipt.category || "Belanja";
+  const category = preview
+    ? findByName(data.categories.filter((item) => item.type === "expense"), receiptCategoryName) || { name: receiptCategoryName }
+    : await findOrCreateCategory(supabase, actor.appUserId, data.categories, receiptCategoryName, "expense");
   const wallet = pickWallet(data.wallets, null);
   if (!wallet) throw httpError("Belum ada dompet rupiah untuk menyimpan transaksi struk.", 400);
+  if (!isDebtWallet(wallet) && number(wallet.balance) < number(receipt.total)) {
+    return {
+      handled: true,
+      userId: actor.externalUserId,
+      appUserId: actor.appUserId,
+      channel: actor.channel,
+      action: "receipt_scan",
+      changed: false,
+      blocked: true,
+      source: "dompetrapi-ai-execute",
+      model: result.model,
+      reply: `Saldo ${wallet.name} tidak cukup untuk struk ${money(receipt.total)}. Sisa saldo ${money(wallet.balance)}.`
+    };
+  }
+
+  if (preview) {
+    return {
+      handled: true,
+      userId: actor.externalUserId,
+      appUserId: actor.appUserId,
+      channel: actor.channel,
+      action: "receipt_scan",
+      changed: false,
+      needsConfirmation: true,
+      source: "dompetrapi-ai-execute",
+      model: result.model,
+      reply: [
+        `Konfirmasi simpan struk ini:`,
+        `Pengeluaran ${money(receipt.total)}`,
+        `Dompet: ${wallet.name}`,
+        `Kategori: ${category.name}`,
+        receipt.merchant ? `Merchant: ${receipt.merchant}` : "",
+        receipt.note ? `Catatan: ${receipt.note}` : "",
+        "",
+        `Balas *ya* untuk simpan atau *batal* untuk membatalkan.`
+      ].filter(Boolean).join("\n")
+    };
+  }
 
   await insertTransactionAndUpdateWallet(supabase, actor.appUserId, {
     wallet,
@@ -425,9 +654,18 @@ Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
 
 async function createWallet(supabase, userId, intent, message) {
   const type = WALLET_TYPES.has(intent.walletKind) ? intent.walletKind : normalizeWalletKind(intent.walletKind || intent.type);
-  const name = cleanText(intent.walletName || intent.title || (type === "gold" ? "Emas tabungan" : "Dompet baru"));
+  const rawName = cleanText(intent.walletName || intent.title);
+  const name = rawName || (type === "gold" ? "Emas tabungan" : "");
   const goldGrams = type === "gold" ? (intent.gold_grams || parseGramText(message)) : 0;
   const balance = type === "gold" ? 0 : Math.max(0, number(intent.amount));
+
+  if (!name) {
+    return { reply: "Nama dompetnya apa, bestie?" };
+  }
+
+  if (type !== "gold" && !hasIntentValue(intent.amount)) {
+    return { reply: `Saldo awal dompet ${name} berapa? Kalau kosong, balas 0.` };
+  }
 
   if (type === "gold" && goldGrams <= 0) {
     return { reply: "Bestie, jumlah emasnya belum jelas. Contoh: buat dompet emas 0.01 gram." };
@@ -484,7 +722,7 @@ async function createTransaction(supabase, userId, intent, data) {
   if (!wallet) return { reply: "Belum ada dompet rupiah yang bisa dipakai. Buat dompet dulu ya." };
   if (wallet.type === "gold") return { reply: "Dompet emas pakai gram, jadi tidak bisa dipakai untuk transaksi rupiah biasa." };
 
-  if (type === "expense" && !["credit_card", "paylater"].includes(wallet.type) && number(wallet.balance) < amount) {
+  if (type === "expense" && !isDebtWallet(wallet) && number(wallet.balance) < amount) {
     return { reply: `Saldo ${wallet.name} tidak cukup. Sisa ${money(wallet.balance)}.` };
   }
 
@@ -503,6 +741,45 @@ async function createTransaction(supabase, userId, intent, data) {
   return {
     reply: `${type === "income" ? "Pemasukan" : "Pengeluaran"} ${money(amount)} berhasil dicatat di ${wallet.name} untuk ${category.name}.`,
     changed: true
+  };
+}
+
+async function deleteTransaction(supabase, userId, intent, data) {
+  const transaction = findTransaction(data, intent);
+  if (!transaction) {
+    return { reply: "Transaksi yang mau dihapus belum ketemu. Sebutkan nominal, catatan, atau bilang hapus transaksi terakhir." };
+  }
+
+  const wallet = data.wallets.find((item) => item.id === transaction.wallet_id);
+  const amount = number(transaction.amount);
+  const reverseDelta = reverseTransactionDelta(transaction);
+  const nextBalance = wallet ? number(wallet.balance) + reverseDelta : null;
+
+  if (wallet && !isDebtWallet(wallet) && nextBalance < 0) {
+    return { reply: `Transaksi pemasukan ${money(amount)} tidak bisa dihapus karena saldo ${wallet.name} akan minus.` };
+  }
+
+  const deleted = await supabase
+    .from("transactions")
+    .delete()
+    .eq("id", transaction.id)
+    .eq("user_id", userId);
+  if (deleted.error) throw deleted.error;
+
+  if (wallet) {
+    const update = await supabase
+      .from("wallets")
+      .update({ balance: nextBalance })
+      .eq("id", wallet.id)
+      .eq("user_id", userId);
+    if (update.error) throw update.error;
+  }
+
+  return {
+    changed: true,
+    reply: wallet
+      ? `Transaksi ${money(amount)} berhasil dihapus. Saldo ${wallet.name} ${transaction.type === "expense" ? "bertambah" : "berkurang"} ${money(amount)}.`
+      : `Transaksi ${money(amount)} berhasil dihapus.`
   };
 }
 
@@ -567,6 +844,55 @@ async function logAiEvent(supabase, userId, kind, prompt, result) {
 function pickWallet(wallets, walletName) {
   const rupiahWallets = wallets.filter((wallet) => wallet.type !== "gold");
   return findByName(rupiahWallets, walletName) || rupiahWallets.find((wallet) => !["credit_card", "paylater"].includes(wallet.type)) || rupiahWallets[0] || null;
+}
+
+function findTransaction(data, intent) {
+  const txId = cleanText(intent.transactionId || intent.transaction_id || intent.id);
+  if (txId) {
+    const byId = data.transactions.find((transaction) => transaction.id === txId);
+    if (byId) return byId;
+  }
+
+  const amount = normalizeAmount(intent.amount);
+  const type = intent.type === "income" || intent.type === "expense" ? intent.type : "";
+  const date = validDate(intent.date);
+  const wallet = intent.walletName ? findByName(data.wallets, intent.walletName) : null;
+  const category = intent.categoryName ? findByName(data.categories, intent.categoryName) : null;
+  const noteNeedle = normalizeName(intent.note || intent.title || "");
+
+  const candidates = data.transactions.filter((transaction) => {
+    if (amount && number(transaction.amount) !== amount) return false;
+    if (type && transaction.type !== type) return false;
+    if (date && transaction.transaction_date !== date) return false;
+    if (wallet && transaction.wallet_id !== wallet.id) return false;
+    if (category && transaction.category_id !== category.id) return false;
+    if (noteNeedle && !normalizeName(transaction.note || "").includes(noteNeedle)) return false;
+    return true;
+  });
+
+  return candidates[0] || null;
+}
+
+function reverseTransactionDelta(transaction) {
+  const amount = number(transaction.amount);
+  return transaction.type === "income" ? -amount : amount;
+}
+
+function isDebtWallet(wallet) {
+  return ["credit_card", "paylater"].includes(wallet?.type);
+}
+
+function walletTypeLabel(type) {
+  const labels = {
+    bank: "Bank",
+    ewallet: "E-wallet",
+    cash: "Cash",
+    credit_card: "Kartu kredit",
+    paylater: "PayLater",
+    investment: "Investasi",
+    gold: "Emas"
+  };
+  return labels[type] || type || "Dompet";
 }
 
 function inferCategoryName(text) {
@@ -725,6 +1051,11 @@ function normalizeAmount(value) {
   if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
   const parsed = parseAmountText(value);
   return parsed || undefined;
+}
+
+function hasIntentValue(value) {
+  if (value === undefined || value === null) return false;
+  return String(value).trim() !== "";
 }
 
 function parseAmountText(text) {
