@@ -100,6 +100,14 @@ const NAV_AI = [
   ["pro-health", Gauge, "Health"]
 ];
 
+const AI_EXECUTE_MUTATIONS = new Set([
+  "create_transaction",
+  "create_wallet",
+  "create_category",
+  "create_budget",
+  "receipt_scan"
+]);
+
 const MOTIVASI_QUOTES = [
   "Nabung hari ini, bebas besok.",
   "Setiap rupiah yang kamu simpan adalah masa depan yang kamu jaga.",
@@ -739,27 +747,57 @@ function App() {
     });
   }
 
-  function runAdvisor(question) {
+  function canUseAiExecutor() {
+    return !boot.demo && boot.supabase && boot.session && boot.backend === "dompetrapi";
+  }
+
+  async function getAppAccessToken() {
+    if (!boot.supabase) return "";
+    const sessionResult = await boot.supabase.auth.getSession();
+    return sessionResult.data?.session?.access_token || boot.session?.access_token || "";
+  }
+
+  async function callAiExecutor({ message, imageBase64 }) {
+    const token = await getAppAccessToken();
+    if (!token) throw new Error("Session login tidak ditemukan.");
+
+    const response = await fetch("/api/v1/ai-execute", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        message,
+        ...(imageBase64 ? { image_base64: imageBase64 } : {})
+      })
+    });
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : { error: await response.text() };
+    if (!response.ok) throw new Error(payload.reply || payload.error || "AI executor gagal merespons.");
+    return payload;
+  }
+
+  async function runAdvisor(question) {
     const userName = profile?.full_name?.split(" ")[0] || "bestie";
     const fullName = profile?.full_name || userName;
     const userQuestion = String(question || "").trim() || "Analisis kondisi keuangan bulan ini dan beri 3 saran paling penting.";
     const loadingId = `loading-${Date.now()}`;
-    runAI({
-      slot: "advisor",
-      prompt: userQuestion,
-      system: `Kamu adalah ShanIA, AI sahabat keuangan pribadi untuk ${fullName} di Indonesia, timezone Asia/Jakarta. Jawab dalam bahasa Indonesia yang santai, praktis, dan empatik. Panggil user dengan "bestie" sewajarnya. Beri saran keuangan yang jelas dan aman. Jangan mengklaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
-      context: buildFinanceContext(pricedData, budgets, metrics),
-      onStart: () => {
-        setUi((current) => ({
-          ...current,
-          proTab: "chat",
-          advisor: [
-            ...normalizeChatMessages(current.advisor),
-            { role: "user", text: userQuestion },
-            { id: loadingId, role: "assistant", text: "ShanIA lagi mikir...", loading: true }
-          ]
-        }));
-      },
+
+    const startAdvisorBubble = (text = "ShanIA lagi mikir...") => {
+      setUi((current) => ({
+        ...current,
+        proTab: "chat",
+        advisor: [
+          ...normalizeChatMessages(current.advisor),
+          { role: "user", text: userQuestion },
+          { id: loadingId, role: "assistant", text, loading: true }
+        ]
+      }));
+    };
+    const streamHandlers = {
       onStream: (text) => {
         setUi((current) => ({
           ...current,
@@ -789,12 +827,45 @@ function App() {
             text: payload?.text || lines.join("\n")
           })
         }));
+      }
+    };
+    const runStreamingAdvisor = (alreadyStarted = false) => runAI({
+      slot: "advisor",
+      prompt: userQuestion,
+      system: `Kamu adalah ShanIA, AI sahabat keuangan pribadi untuk ${fullName} di Indonesia, timezone Asia/Jakarta. Jawab dalam bahasa Indonesia yang santai, praktis, dan empatik. Panggil user dengan "bestie" sewajarnya. Beri saran keuangan yang jelas dan aman. Jangan mengklaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
+      context: buildFinanceContext(pricedData, budgets, metrics),
+      onStart: () => {
+        if (alreadyStarted) return;
+        startAdvisorBubble();
       },
+      ...streamHandlers,
       stream: true
     });
+
+    if (canUseAiExecutor()) {
+      startAdvisorBubble("ShanIA lagi mengeksekusi...");
+      try {
+        const payload = await callAiExecutor({ message: userQuestion });
+        const reply = payload.reply || "Siap, perintah diproses.";
+        setUi((current) => ({
+          ...current,
+          advisor: replaceLoadingMessage(current.advisor, loadingId, {
+            role: "assistant",
+            text: reply
+          })
+        }));
+        if (payload.changed || AI_EXECUTE_MUTATIONS.has(payload.action)) refreshData();
+        return;
+      } catch (error) {
+        notify(`AI executor belum siap: ${error.message}. Mode advisor biasa dipakai dulu.`, "warning");
+        return runStreamingAdvisor(true);
+      }
+    }
+
+    return runStreamingAdvisor(false);
   }
 
-  function runReceipt(text, imageUrl) {
+  function runReceiptPreview(text, imageUrl) {
     const userName = profile?.full_name?.split(" ")[0] || "bestie";
     const fullName = profile?.full_name || userName;
     runAI({
@@ -816,6 +887,26 @@ function App() {
         }
       }
     });
+  }
+
+  async function runReceipt(text, imageUrl) {
+    if (!canUseAiExecutor() || !imageUrl) {
+      runReceiptPreview(text, imageUrl);
+      return;
+    }
+
+    const prompt = text || "Scan struk ini dan simpan sebagai transaksi pengeluaran.";
+    setUi((current) => ({ ...current, receipt: ["ShanIA lagi membaca struk..."], scanResult: null }));
+
+    try {
+      const payload = await callAiExecutor({ message: prompt, imageBase64: imageUrl });
+      const reply = payload.reply || "Struk selesai diproses.";
+      setUi((current) => ({ ...current, receipt: splitAiText(reply), scanResult: null }));
+      if (payload.changed || AI_EXECUTE_MUTATIONS.has(payload.action)) refreshData();
+    } catch (error) {
+      notify(`AI executor struk belum siap: ${error.message}. Scan manual dipakai dulu.`, "warning");
+      runReceiptPreview(text, imageUrl);
+    }
   }
 
   function runReport(extraPrompt) {
@@ -1703,7 +1794,7 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
               <div className="chat-avatar"><Bot size={19} /></div>
               <div>
                 <strong>DompetRapi AI</strong>
-                <span className="mini-badge gold">DeepSeek V4</span>
+                <span className="mini-badge gold">AI Execute</span>
               </div>
             </div>
             <div className="chat-thread">

@@ -60,12 +60,38 @@ Fitur AI Pro memakai Vercel Serverless Function di `api/openrouter.js`. Nama end
 Untuk production di Vercel, tambahkan environment variable server:
 
 ```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 GROQ_API_KEY=your-groq-api-key
 GEMINI_API_KEY=your-gemini-api-key
 BIGMODEL_API_KEY=your-bigmodel-api-key
 ```
 
 Jangan menaruh API key AI di `VITE_` env karena nilai `VITE_` ikut masuk ke bundle browser. Endpoint juga menerima `GOOGLE_AI_API_KEY` dan `ZHIPU_API_KEY` sebagai alias server-only.
+
+## AI Executor Server
+
+AI Chat dan Scan Struk memakai executor backend di `api/v1/ai-execute.js` agar AI bisa membaca konteks finance user dan mengeksekusi aksi ke database dengan aman.
+
+- Endpoint production: `/v1/ai-execute`
+- Endpoint Vercel function langsung: `/api/v1/ai-execute`
+- Payload app: `{ "message": "catat kopi 25rb dari gopay", "image_base64": "data:image/jpeg;base64,..." }`
+- Header app wajib: `Authorization: Bearer <supabase_access_token>`
+- Aksi yang didukung: catat transaksi, buat dompet, buat kategori, buat budget, ringkasan saldo, harga emas, insight finance, dan scan struk otomatis.
+- Frontend otomatis refresh data setelah response `changed: true`.
+- Semua LLM, OCR struk, intent finance, dan operasi Supabase terjadi di backend DompetRapi.
+
+Environment variable server DompetRapi yang wajib untuk executor:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+GROQ_API_KEY=your-groq-api-key
+GEMINI_API_KEY=your-gemini-api-key
+BIGMODEL_API_KEY=your-bigmodel-api-key
+```
+
+Channel eksternal seperti bot WhatsApp bisa dibuat nanti di folder/project terpisah sebagai proxy tipis ke endpoint yang sama. Untuk mode itu, endpoint juga mendukung token `WHATSAPP_BOT_TOKEN` dan mapping `whatsapp_user_links`.
 
 ## Routes
 

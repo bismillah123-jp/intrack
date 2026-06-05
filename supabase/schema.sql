@@ -106,6 +106,15 @@ create table if not exists public.ai_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.whatsapp_user_links (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  wa_user_id text not null unique,
+  display_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists wallets_user_id_idx on public.wallets(user_id);
 create index if not exists categories_user_id_idx on public.categories(user_id);
 create index if not exists transactions_user_date_idx on public.transactions(user_id, transaction_date desc);
@@ -114,6 +123,7 @@ create index if not exists transactions_category_id_idx on public.transactions(c
 create index if not exists budgets_user_period_idx on public.budgets(user_id, period_start desc);
 create index if not exists goals_user_deadline_idx on public.goals(user_id, deadline);
 create index if not exists ai_events_user_created_idx on public.ai_events(user_id, created_at desc);
+create index if not exists whatsapp_user_links_user_id_idx on public.whatsapp_user_links(user_id);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -160,6 +170,11 @@ create trigger set_goals_updated_at
 before update on public.goals
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_whatsapp_user_links_updated_at on public.whatsapp_user_links;
+create trigger set_whatsapp_user_links_updated_at
+before update on public.whatsapp_user_links
+for each row execute function public.set_updated_at();
+
 alter table public.profiles enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.wallets enable row level security;
@@ -168,6 +183,7 @@ alter table public.transactions enable row level security;
 alter table public.budgets enable row level security;
 alter table public.goals enable row level security;
 alter table public.ai_events enable row level security;
+alter table public.whatsapp_user_links enable row level security;
 
 drop policy if exists profiles_select_own on public.profiles;
 create policy profiles_select_own on public.profiles
@@ -216,6 +232,13 @@ for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists ai_events_all_own on public.ai_events;
 create policy ai_events_all_own on public.ai_events
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists whatsapp_user_links_all_own on public.whatsapp_user_links;
+create policy whatsapp_user_links_all_own on public.whatsapp_user_links
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+grant select, insert, update, delete on public.whatsapp_user_links to authenticated;
+grant select, insert, update, delete on public.whatsapp_user_links to service_role;
 
 create or replace function public.handle_new_user()
 returns trigger
