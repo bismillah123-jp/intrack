@@ -361,6 +361,7 @@ Nominal wajib angka rupiah. 50k jadi 50000. 2.5jt jadi 2500000.
 Emas wajib gram, misalnya 0.01g jadi gold_grams 0.01.
 Jangan mengarang nominal atau gram. Kalau kurang detail, action clarify.
 Untuk delete_transaction, gunakan amount/note/walletName/date bila user menyebut detail. Kalau user bilang transaksi terakhir/terbaru, action delete_transaction tanpa mengarang detail.
+Jika pesan berisi revisi aksi yang belum dikonfirmasi, utamakan "Revisi terbaru user" dibanding konfirmasi sebelumnya. Contoh: "pakai BCA aja" berarti ganti walletName ke BCA untuk aksi yang sama.
 
 Konteks finance:
 ${context}
@@ -589,7 +590,7 @@ Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
   const category = preview
     ? findByName(data.categories.filter((item) => item.type === "expense"), receiptCategoryName) || { name: receiptCategoryName }
     : await findOrCreateCategory(supabase, actor.appUserId, data.categories, receiptCategoryName, "expense");
-  const wallet = pickWallet(data.wallets, null);
+  const wallet = pickWalletFromMessage(data.wallets, payload.message) || pickWallet(data.wallets, null);
   if (!wallet) throw httpError("Belum ada dompet rupiah untuk menyimpan transaksi struk.", 400);
   if (!isDebtWallet(wallet) && number(wallet.balance) < number(receipt.total)) {
     return {
@@ -844,6 +845,24 @@ async function logAiEvent(supabase, userId, kind, prompt, result) {
 function pickWallet(wallets, walletName) {
   const rupiahWallets = wallets.filter((wallet) => wallet.type !== "gold");
   return findByName(rupiahWallets, walletName) || rupiahWallets.find((wallet) => !["credit_card", "paylater"].includes(wallet.type)) || rupiahWallets[0] || null;
+}
+
+function pickWalletFromMessage(wallets, message) {
+  const normalizedMessage = normalizeName(extractLatestUserRevision(message));
+  if (!normalizedMessage) return null;
+  const rupiahWallets = wallets.filter((wallet) => wallet.type !== "gold");
+  return rupiahWallets.find((wallet) => {
+    const name = normalizeName(wallet.name);
+    return name && normalizedMessage.includes(name);
+  }) || null;
+}
+
+function extractLatestUserRevision(message) {
+  const text = String(message || "");
+  const marker = "Revisi terbaru user:";
+  const markerIndex = text.lastIndexOf(marker);
+  if (markerIndex === -1) return text;
+  return text.slice(markerIndex + marker.length);
 }
 
 function findTransaction(data, intent) {
