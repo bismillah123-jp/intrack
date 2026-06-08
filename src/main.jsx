@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Activity,
   ArrowDownLeft,
+  ArrowRightLeft,
   ArrowUpRight,
   BadgeCheck,
   BarChart3,
@@ -102,6 +103,8 @@ const NAV_AI = [
 
 const AI_EXECUTE_MUTATIONS = new Set([
   "create_transaction",
+  "delete_transaction",
+  "transfer_wallet",
   "create_wallet",
   "create_category",
   "create_budget",
@@ -189,6 +192,7 @@ const initialUi = {
   proTab: "chat",
   balanceHidden: localStorage.getItem("dompetrapi-hidden") === "true",
   txModal: false,
+  transferModal: false,
   walletModal: false,
   budgetModal: false,
   confirmPrompt: null,
@@ -635,6 +639,80 @@ function App() {
     refreshData("Transaksi ditambahkan.");
   }
 
+  async function saveTransfer(values) {
+    if (guardDemo()) return;
+    if (boot.backend !== "dompetrapi") {
+      return notify("Transfer antar dompet membutuhkan schema DompetRapi terbaru.", "warning");
+    }
+
+    const amount = number(values.amount);
+    const source = data.wallets.find((item) => item.id === values.source_wallet_id);
+    const destination = data.wallets.find((item) => item.id === values.destination_wallet_id);
+    if (!amount || amount <= 0) return notify("Nominal transfer harus lebih dari 0.", "warning");
+    if (!source || !destination) return notify("Pilih dompet asal dan tujuan dulu.", "warning");
+    if (source.id === destination.id) return notify("Dompet asal dan tujuan harus berbeda.", "warning");
+    if (source.type === "gold" || destination.type === "gold") {
+      return notify("Dompet emas tidak bisa dipakai untuk transfer rupiah.", "warning");
+    }
+    if (!isDebtWallet(source) && number(source.balance) < amount) {
+      return notify(`Saldo ${source.name} tidak cukup! (Sisa: ${money(source.balance)})`, "danger");
+    }
+
+    const transferCategories = await ensureTransferCategories(boot.supabase, boot.session.user.id, data.categories);
+    if (!transferCategories.expense || !transferCategories.income) {
+      return notify("Kategori Transfer belum bisa disiapkan.", "danger");
+    }
+
+    const groupId = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : makeId("transfer");
+    const date = values.transaction_date || isoDate(new Date());
+    const note = values.note || `Transfer ${source.name} ke ${destination.name}`;
+    const rows = [
+      {
+        user_id: boot.session.user.id,
+        wallet_id: source.id,
+        category_id: transferCategories.expense.id,
+        type: "expense",
+        amount,
+        transaction_date: date,
+        note,
+        is_transfer: true,
+        transfer_group_id: groupId,
+        transfer_wallet_id: destination.id
+      },
+      {
+        user_id: boot.session.user.id,
+        wallet_id: destination.id,
+        category_id: transferCategories.income.id,
+        type: "income",
+        amount,
+        transaction_date: date,
+        note,
+        is_transfer: true,
+        transfer_group_id: groupId,
+        transfer_wallet_id: source.id
+      }
+    ];
+
+    const inserted = await boot.supabase.from("transactions").insert(rows);
+    if (inserted.error) return notify(inserted.error.message);
+
+    const sourceUpdate = await boot.supabase
+      .from("wallets")
+      .update({ balance: number(source.balance) - amount })
+      .eq("id", source.id)
+      .eq("user_id", boot.session.user.id);
+    if (sourceUpdate.error) return notify(sourceUpdate.error.message);
+
+    const destinationUpdate = await boot.supabase
+      .from("wallets")
+      .update({ balance: number(destination.balance) + amount })
+      .eq("id", destination.id)
+      .eq("user_id", boot.session.user.id);
+    if (destinationUpdate.error) return notify(destinationUpdate.error.message);
+
+    refreshData(`Transfer ${money(amount)} dari ${source.name} ke ${destination.name} berhasil.`);
+  }
+
   async function saveBudget(values) {
     if (guardDemo()) return;
     if (boot.backend === "fintrack") {
@@ -727,6 +805,7 @@ function App() {
       }
       if (table === "transactions") {
         const transaction = data.transactions.find((item) => item.id === id);
+        if (!transaction) return notify("Transaksi tidak ditemukan.", "warning");
         const wallet = data.wallets.find((item) => item.id === transaction?.wallet_id);
         const nextBalance = wallet && transaction ? number(wallet.balance) + reverseTransactionDelta(transaction) : null;
         if (wallet && transaction && !isDebtWallet(wallet) && nextBalance < 0) {
@@ -750,22 +829,25 @@ function App() {
     }
     if (table === "transactions") {
       const transaction = data.transactions.find((item) => item.id === id);
-      const wallet = data.wallets.find((item) => item.id === transaction?.wallet_id);
-      const nextBalance = wallet && transaction ? number(wallet.balance) + reverseTransactionDelta(transaction) : null;
-      if (wallet && transaction && !isDebtWallet(wallet) && nextBalance < 0) {
-        return notify(`Transaksi tidak bisa dihapus karena saldo ${wallet.name} akan minus.`, "warning");
+      if (!transaction) return notify("Transaksi tidak ditemukan.", "warning");
+      const transactionsToDelete = getLinkedTransferTransactions(data, transaction);
+      const walletPlans = buildWalletRestorePlans(data, transactionsToDelete);
+      const blockedPlan = walletPlans.find((plan) => !isDebtWallet(plan.wallet) && plan.nextBalance < 0);
+      if (blockedPlan) {
+        return notify(`Transaksi tidak bisa dihapus karena saldo ${blockedPlan.wallet.name} akan minus.`, "warning");
       }
-      const { error } = await boot.supabase.from("transactions").delete().eq("id", id).eq("user_id", boot.session.user.id);
+      const ids = transactionsToDelete.map((item) => item.id);
+      const { error } = await boot.supabase.from("transactions").delete().in("id", ids).eq("user_id", boot.session.user.id);
       if (error) return notify(error.message);
-      if (wallet && transaction) {
+      for (const plan of walletPlans) {
         const update = await boot.supabase
           .from("wallets")
-          .update({ balance: nextBalance })
-          .eq("id", wallet.id)
+          .update({ balance: plan.nextBalance })
+          .eq("id", plan.wallet.id)
           .eq("user_id", boot.session.user.id);
         if (update.error) return notify(update.error.message);
       }
-      refreshData(message || "Transaksi dihapus dan saldo disesuaikan.");
+      refreshData(isTransferTransaction(transaction) ? "Transfer dihapus dan saldo kedua dompet dikembalikan." : message || "Transaksi dihapus dan saldo disesuaikan.");
       return;
     }
     const { error } = await boot.supabase.from(table).delete().eq("id", id).eq("user_id", boot.session.user.id);
@@ -793,27 +875,55 @@ function App() {
     return sessionResult.data?.session?.access_token || boot.session?.access_token || "";
   }
 
+  function getAiExecuteEndpoints() {
+    const runtimeUrl = window.__DOMPETRAPI_CONFIG__?.AI_EXECUTE_URL || window.DOMPETRAPI_CONFIG?.AI_EXECUTE_URL || "";
+    const envUrl = import.meta.env.VITE_AI_EXECUTE_URL || "";
+    const endpoints = [runtimeUrl, envUrl, "/api/v1/ai-execute"]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    return [...new Set(endpoints)];
+  }
+
+  function isFetchNetworkError(error) {
+    return error instanceof TypeError || /failed to fetch|network|load failed|fetch/i.test(String(error?.message || ""));
+  }
+
   async function callAiExecutor({ message, imageBase64 }) {
     const token = await getAppAccessToken();
     if (!token) throw new Error("Session login tidak ditemukan.");
 
-    const response = await fetch("/api/v1/ai-execute", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        message,
-        ...(imageBase64 ? { image_base64: imageBase64 } : {})
-      })
-    });
-    const contentType = response.headers.get("content-type") || "";
-    const payload = contentType.includes("application/json")
-      ? await response.json()
-      : { error: await response.text() };
-    if (!response.ok) throw new Error(payload.reply || payload.error || "AI executor gagal merespons.");
-    return payload;
+    const body = {
+      message,
+      ...(imageBase64 ? { image_base64: imageBase64 } : {})
+    };
+    let lastNetworkError = null;
+
+    for (const endpoint of getAiExecuteEndpoints()) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(body)
+        });
+        const contentType = response.headers.get("content-type") || "";
+        const payload = contentType.includes("application/json")
+          ? await response.json()
+          : { error: await response.text() };
+        if (!response.ok) throw new Error(payload.reply || payload.error || "AI executor gagal merespons.");
+        return payload;
+      } catch (error) {
+        if (!isFetchNetworkError(error)) throw error;
+        lastNetworkError = error;
+      }
+    }
+
+    const error = new Error("Endpoint AI tidak dapat dihubungi. Cek DNS domain API atau isi VITE_AI_EXECUTE_URL dengan endpoint yang aktif.");
+    error.cause = lastNetworkError;
+    throw error;
   }
 
   async function runAdvisor(question) {
@@ -1084,6 +1194,7 @@ function App() {
           onLogout={signOut}
           onWallet={saveWallet}
           onTransaction={saveTransaction}
+          onTransfer={saveTransfer}
           onBudget={saveBudget}
           onGoal={saveGoal}
           onDelete={deleteRow}
@@ -1311,16 +1422,42 @@ function Workspace(props) {
           }}
         />
       ) : null}
+      {ui.transferModal ? (
+        <TransferModal
+          data={props.data}
+          ui={ui}
+          setUi={setUi}
+          demo={props.demo}
+          onTransfer={(values) => {
+            props.onTransfer(values);
+            setUi(c => ({ ...c, transferModal: false }));
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 function HeaderAction({ page, setUi }) {
-  if (page === "transactions") return (
-    <button className="btn primary" onClick={() => setUi(c => ({ ...c, txModal: true }))}>
-      <Plus size={18} /> Transaksi
-    </button>
-  );
+  if (page === "transactions") {
+    return (
+      <div className="header-actions">
+        <button className="btn quiet" onClick={() => setUi(c => ({ ...c, transferModal: true }))}>
+          <ArrowRightLeft size={18} /> Transfer
+        </button>
+        <button className="btn primary" onClick={() => setUi(c => ({ ...c, txModal: true }))}>
+          <Plus size={18} /> Transaksi
+        </button>
+      </div>
+    );
+  }
+  if (page === "wallets") {
+    return (
+      <button className="btn quiet" onClick={() => setUi(c => ({ ...c, transferModal: true }))}>
+        <ArrowRightLeft size={18} /> Transfer
+      </button>
+    );
+  }
   return null;
 }
 
@@ -1635,7 +1772,10 @@ function Wallets({ data, ui, setUi, demo, backend, goldPrice, onWallet, onDelete
   return (
     <div className="single-col">
       <GoldPriceBar goldPrice={goldPrice} />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+      <div className="wallet-toolbar">
+        <button className="btn quiet" disabled={demo} onClick={() => setUi(c => ({ ...c, transferModal: true }))}>
+          <ArrowRightLeft size={18} /> Transfer
+        </button>
         <button className="btn primary" onClick={() => setUi(c => ({ ...c, walletModal: true }))}>+ Tambah Dompet</button>
       </div>
       <section className="cards-grid">
@@ -2268,13 +2408,15 @@ function PanelHead({ title, badge }) {
 function TransactionItem({ tx, data, onDelete }) {
   const category = data.categories.find((item) => item.id === tx.category_id);
   const wallet = data.wallets.find((item) => item.id === tx.wallet_id);
-  const Icon = tx.type === "income" ? ArrowDownLeft : ArrowUpRight;
+  const pairWallet = data.wallets.find((item) => item.id === tx.transfer_wallet_id);
+  const transfer = isTransferTransaction(tx);
+  const Icon = transfer ? ArrowRightLeft : tx.type === "income" ? ArrowDownLeft : ArrowUpRight;
   return (
     <article className="transaction-item">
-      <span className={tx.type === "income" ? "tx-icon income" : "tx-icon expense"}><Icon size={18} /></span>
+      <span className={transfer ? "tx-icon transfer" : tx.type === "income" ? "tx-icon income" : "tx-icon expense"}><Icon size={18} /></span>
       <div>
-        <strong>{tx.note || category?.name || "Transaksi"}</strong>
-        <p>{formatDate(tx.transaction_date)} · {category?.name || "Kategori"} · {wallet?.name || "Dompet"}</p>
+        <strong>{transfer ? (tx.type === "expense" ? "Transfer keluar" : "Transfer masuk") : tx.note || category?.name || "Transaksi"}</strong>
+        <p>{formatDate(tx.transaction_date)} - {category?.name || "Kategori"} - {wallet?.name || "Dompet"}{transfer && pairWallet ? ` -> ${pairWallet.name}` : ""}</p>
       </div>
       <b className={tx.type === "income" ? "income-text" : "expense-text"}>{tx.type === "income" ? "+" : "-"}{money(tx.amount)}</b>
       {onDelete ? <button className="icon-btn" onClick={onDelete}><Trash2 size={15} /></button> : null}
@@ -2344,7 +2486,8 @@ async function loadConfig() {
   if (new URLSearchParams(location.search).get("demo") === "1") return null;
   const envConfig = {
     SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
-    SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY
+    SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
+    AI_EXECUTE_URL: import.meta.env.VITE_AI_EXECUTE_URL
   };
   if (envConfig.SUPABASE_URL && envConfig.SUPABASE_ANON_KEY && !isPlaceholder(envConfig)) {
     return setRuntimeConfig(envConfig);
@@ -2418,6 +2561,31 @@ async function ensureUserSetup(supabase, user) {
   }
 }
 
+async function ensureTransferCategories(supabase, userId, categories = []) {
+  const existingExpense = findByName(categories.filter((category) => category.type === "expense"), "Transfer");
+  const existingIncome = findByName(categories.filter((category) => category.type === "income"), "Transfer");
+  const missingRows = [
+    existingExpense ? null : { user_id: userId, name: "Transfer", type: "expense", color: "#64748b", icon: "arrow-right-left", is_default: true },
+    existingIncome ? null : { user_id: userId, name: "Transfer", type: "income", color: "#64748b", icon: "arrow-right-left", is_default: true }
+  ].filter(Boolean);
+
+  let savedCategories = [];
+  if (missingRows.length) {
+    const saved = await supabase
+      .from("categories")
+      .upsert(missingRows, { onConflict: "user_id,type,name" })
+      .select("*");
+    if (saved.error) throw saved.error;
+    savedCategories = saved.data || [];
+  }
+
+  const allCategories = [...categories, ...savedCategories];
+  return {
+    expense: findByName(allCategories.filter((category) => category.type === "expense"), "Transfer"),
+    income: findByName(allCategories.filter((category) => category.type === "income"), "Transfer")
+  };
+}
+
 async function detectSupabaseBackend(supabase) {
   const appProbe = await supabase.from("profiles").select("id").limit(1);
   if (!appProbe.error) return "dompetrapi";
@@ -2468,7 +2636,10 @@ function mapFintrackData(rows, userId) {
       type: transaction.type,
       amount: transaction.amount,
       transaction_date: transaction.date,
-      note: transaction.note || transaction.title
+      note: transaction.note || transaction.title,
+      is_transfer: false,
+      transfer_group_id: null,
+      transfer_wallet_id: null
     })),
     budgets: rows.budgets.map((budget) => ({
       id: budget.id,
@@ -2510,6 +2681,21 @@ function slugId(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+function normalizeName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function findByName(items = [], name) {
+  const needle = normalizeName(name);
+  if (!needle) return null;
+  return items.find((item) => normalizeName(item.name) === needle) || items.find((item) => normalizeName(item.name).includes(needle)) || null;
 }
 
 function emptyData() {
@@ -2585,7 +2771,8 @@ function demoData() {
 
 function getMetrics(data) {
   const month = monthKey(new Date());
-  const monthTransactions = data.transactions.filter((item) => monthKey(item.transaction_date) === month);
+  const financeTransactions = getFinanceTransactions(data);
+  const monthTransactions = financeTransactions.filter((item) => monthKey(item.transaction_date) === month);
   const monthlyIncome = sum(monthTransactions.filter((item) => item.type === "income"), "amount");
   const monthlyExpense = sum(monthTransactions.filter((item) => item.type === "expense"), "amount");
   const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater"].includes(item.type)), "balance");
@@ -2643,8 +2830,9 @@ function getMetrics(data) {
 
 function enrichBudgets(data) {
   const month = monthKey(new Date());
-  const income = sum(data.transactions.filter((item) => item.type === "income" && monthKey(item.transaction_date) === month), "amount");
-  const expenses = data.transactions.filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month);
+  const financeTransactions = getFinanceTransactions(data);
+  const income = sum(financeTransactions.filter((item) => item.type === "income" && monthKey(item.transaction_date) === month), "amount");
+  const expenses = financeTransactions.filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month);
   return data.budgets
     .filter((item) => !item.period_start || monthKey(item.period_start) === month)
     .map((budget) => {
@@ -2686,8 +2874,9 @@ function getHealthStatus(score) {
 }
 
 function trendData(data) {
+  const financeTransactions = getFinanceTransactions(data);
   return lastMonths(6).map((month) => {
-    const rows = data.transactions.filter((item) => monthKey(item.transaction_date) === month.key);
+    const rows = financeTransactions.filter((item) => monthKey(item.transaction_date) === month.key);
     return {
       label: month.label,
       income: sum(rows.filter((item) => item.type === "income"), "amount"),
@@ -2699,7 +2888,7 @@ function trendData(data) {
 function categoryDonut(data) {
   const month = monthKey(new Date());
   const totals = new Map();
-  data.transactions.filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month).forEach((item) => {
+  getFinanceTransactions(data).filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month).forEach((item) => {
     totals.set(item.category_id, (totals.get(item.category_id) || 0) + number(item.amount));
   });
   return [...totals.entries()].map(([categoryId, total]) => {
@@ -2770,6 +2959,34 @@ function hexToRgb(hex) {
 
 function sum(items, key) {
   return items.reduce((total, item) => total + number(item[key]), 0);
+}
+
+function isTransferTransaction(transaction) {
+  return Boolean(transaction?.is_transfer || transaction?.transfer_group_id || transaction?.transfer_wallet_id);
+}
+
+function getFinanceTransactions(data) {
+  return (data.transactions || []).filter((transaction) => !isTransferTransaction(transaction));
+}
+
+function getLinkedTransferTransactions(data, transaction) {
+  if (!transaction) return [];
+  if (!isTransferTransaction(transaction) || !transaction.transfer_group_id) return [transaction];
+  return data.transactions.filter((item) => item.transfer_group_id === transaction.transfer_group_id);
+}
+
+function buildWalletRestorePlans(data, transactions) {
+  const deltas = new Map();
+  transactions.forEach((transaction) => {
+    if (!transaction?.wallet_id) return;
+    deltas.set(transaction.wallet_id, (deltas.get(transaction.wallet_id) || 0) + reverseTransactionDelta(transaction));
+  });
+  return [...deltas.entries()]
+    .map(([walletId, delta]) => {
+      const wallet = data.wallets.find((item) => item.id === walletId);
+      return wallet ? { wallet, delta, nextBalance: number(wallet.balance) + delta } : null;
+    })
+    .filter(Boolean);
 }
 
 function reverseTransactionDelta(transaction) {
@@ -2870,8 +3087,10 @@ function buildFinanceContext(data, budgets, metrics) {
     amount: number(transaction.amount),
     date: transaction.transaction_date,
     note: transaction.note,
+    is_transfer: isTransferTransaction(transaction),
     category: data.categories.find((category) => category.id === transaction.category_id)?.name || null,
-    wallet: data.wallets.find((wallet) => wallet.id === transaction.wallet_id)?.name || null
+    wallet: data.wallets.find((wallet) => wallet.id === transaction.wallet_id)?.name || null,
+    paired_wallet: data.wallets.find((wallet) => wallet.id === transaction.transfer_wallet_id)?.name || null
   }));
 
   const compactBudgets = budgets.map((budget) => ({
@@ -3034,6 +3253,52 @@ function TransactionModal({ data, ui, setUi, demo, onTransaction }) {
           submitLabel="Simpan Transaksi"
           onSubmit={onTransaction}
         />
+      </div>
+    </>
+  );
+}
+
+function TransferModal({ data, ui, setUi, demo, onTransfer }) {
+  const availableWallets = data.wallets.filter((wallet) => wallet.type !== "gold");
+  const sourceId = availableWallets[0]?.id || "";
+  const destinationId = availableWallets.find((wallet) => wallet.id !== sourceId)?.id || "";
+
+  return (
+    <>
+      <div className="sidebar-scrim" onClick={() => setUi(c => ({ ...c, transferModal: false }))} style={{ display: 'block' }} />
+      <div className="panel tx-modal" style={{
+        position: "fixed", top: "5vh", left: "50%", transform: "translateX(-50%)",
+        width: "90%", maxWidth: "420px", zIndex: 1000,
+        background: "var(--surface)", border: "1px solid var(--line-strong)",
+        boxShadow: "var(--shadow-xl)", borderRadius: "16px", overflow: "hidden"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "4px" }}>
+          <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>Transfer Dompet</h3>
+          <button className="icon-btn" onClick={() => setUi(c => ({ ...c, transferModal: false }))}><X size={18} /></button>
+        </div>
+        {availableWallets.length < 2 ? (
+          <Empty title="Butuh dua dompet rupiah" copy="Buat minimal dua dompet non-emas untuk transfer saldo." />
+        ) : (
+          <SmartForm
+            disabled={demo}
+            defaults={{
+              source_wallet_id: sourceId,
+              destination_wallet_id: destinationId,
+              amount: "",
+              transaction_date: isoDate(new Date()),
+              note: ""
+            }}
+            fields={[
+              ["source_wallet_id", "select", "Dari dompet", availableWallets.map(w => [w.id, `${w.name} - ${money(w.balance)}`])],
+              ["destination_wallet_id", "select", "Ke dompet", availableWallets.map(w => [w.id, `${w.name} - ${money(w.balance)}`])],
+              ["amount", "money", "Nominal", "100000"],
+              ["transaction_date", "date", "Tanggal"],
+              ["note", "text", "Catatan", "Pindah saldo"]
+            ]}
+            submitLabel="Transfer Saldo"
+            onSubmit={onTransfer}
+          />
+        )}
       </div>
     </>
   );

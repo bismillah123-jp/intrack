@@ -41,6 +41,7 @@ Alternatif build-time: copy `.env.example` ke `.env` dan isi:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_AI_EXECUTE_URL=/api/v1/ai-execute
 GROQ_API_KEY=your-groq-api-key
 GEMINI_API_KEY=your-gemini-api-key
 BIGMODEL_API_KEY=your-bigmodel-api-key
@@ -75,9 +76,10 @@ AI Chat dan Scan Struk memakai executor backend di `api/v1/ai-execute.js` agar A
 
 - Endpoint production: `/v1/ai-execute`
 - Endpoint Vercel function langsung: `/api/v1/ai-execute`
+- Frontend bisa diarahkan ke endpoint aktif lewat `VITE_AI_EXECUTE_URL` atau `AI_EXECUTE_URL` di `config.js`.
 - Payload app: `{ "message": "catat kopi 25rb dari gopay", "image_base64": "data:image/jpeg;base64,..." }`
 - Header app wajib: `Authorization: Bearer <supabase_access_token>`
-- Aksi yang didukung: catat transaksi, buat dompet, buat kategori, buat budget, ringkasan saldo, harga emas, insight finance, dan scan struk otomatis.
+- Aksi yang didukung: catat transaksi, hapus transaksi dengan restore saldo, transfer antar dompet, buat dompet, buat kategori, buat budget, ringkasan saldo, harga emas, insight finance, dan scan struk otomatis.
 - Frontend otomatis refresh data setelah response `changed: true`.
 - Semua LLM, OCR struk, intent finance, dan operasi Supabase terjadi di backend DompetRapi.
 

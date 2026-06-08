@@ -69,9 +69,21 @@ create table if not exists public.transactions (
   transaction_date date not null default current_date,
   note text,
   merchant text,
+  is_transfer boolean not null default false,
+  transfer_group_id uuid,
+  transfer_wallet_id uuid references public.wallets(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.transactions
+add column if not exists is_transfer boolean not null default false;
+
+alter table public.transactions
+add column if not exists transfer_group_id uuid;
+
+alter table public.transactions
+add column if not exists transfer_wallet_id uuid references public.wallets(id) on delete set null;
 
 create table if not exists public.budgets (
   id uuid primary key default gen_random_uuid(),
@@ -120,6 +132,7 @@ create index if not exists categories_user_id_idx on public.categories(user_id);
 create index if not exists transactions_user_date_idx on public.transactions(user_id, transaction_date desc);
 create index if not exists transactions_wallet_id_idx on public.transactions(wallet_id);
 create index if not exists transactions_category_id_idx on public.transactions(category_id);
+create index if not exists transactions_transfer_group_idx on public.transactions(user_id, transfer_group_id) where transfer_group_id is not null;
 create index if not exists budgets_user_period_idx on public.budgets(user_id, period_start desc);
 create index if not exists goals_user_deadline_idx on public.goals(user_id, deadline);
 create index if not exists ai_events_user_created_idx on public.ai_events(user_id, created_at desc);

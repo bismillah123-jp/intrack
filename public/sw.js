@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dompetrapi-cache-v3';
+const CACHE_NAME = 'dompetrapi-cache-v4';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -27,6 +27,7 @@ self.addEventListener('fetch', event => {
   const shouldBypassCache =
     requestUrl.origin !== self.location.origin ||
     requestUrl.pathname.startsWith('/api/') ||
+    requestUrl.pathname.startsWith('/v1/') ||
     requestUrl.pathname.startsWith('/src/') ||
     requestUrl.pathname.startsWith('/@vite') ||
     requestUrl.pathname.includes('node_modules') ||

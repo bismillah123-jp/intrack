@@ -20,6 +20,7 @@ const FINANCE_ACTIONS = new Set([
   "general_chat",
   "create_transaction",
   "delete_transaction",
+  "transfer_wallet",
   "create_wallet",
   "create_category",
   "create_budget",
@@ -29,11 +30,11 @@ const FINANCE_ACTIONS = new Set([
   "clarify",
   "none"
 ]);
-const MUTATING_ACTIONS = new Set(["create_transaction", "delete_transaction", "create_wallet", "create_category", "create_budget"]);
+const MUTATING_ACTIONS = new Set(["create_transaction", "delete_transaction", "transfer_wallet", "create_wallet", "create_category", "create_budget"]);
 
 export async function handleAiExecute(body = {}, headers = {}) {
   const payload = normalizePayload(body);
-  const supabase = getSupabaseAdmin();
+  const supabase = getSupabaseExecutorClient(payload, headers);
   const actor = await resolveExecutorActor(supabase, payload, headers);
   const data = await loadFinanceData(supabase, actor.appUserId);
   const pricedData = await applyLiveGoldPrice(data);
@@ -157,17 +158,39 @@ function normalizeImageDataUrl(value) {
   return text;
 }
 
-function getSupabaseAdmin() {
+function getSupabaseExecutorClient(payload = {}, headers = {}) {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  if (!url || !key) throw httpError("SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY wajib diset di server.", 500);
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+  if (!url) throw httpError("SUPABASE_URL wajib diset di server.", 500);
 
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
+  if (serviceKey) {
+    return createClient(url, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+  }
+
+  const bearerToken = getBearerToken(headers);
+  const botToken = getBotToken();
+  const appAccessToken = bearerToken && bearerToken !== botToken ? bearerToken : "";
+  if (appAccessToken && anonKey && !payload.userId) {
+    return createClient(url, anonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${appAccessToken}`
+        }
+      },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+  }
+
+  throw httpError("SUPABASE_SERVICE_ROLE_KEY wajib diset untuk AI executor server dan bot WhatsApp.", 500);
 }
 
 async function resolveExecutorActor(supabase, payload, headers = {}) {
@@ -331,6 +354,7 @@ Actions:
 - general_chat: sapaan/ngobrol biasa.
 - create_transaction: catat pemasukan/pengeluaran.
 - delete_transaction: hapus transaksi yang sudah tercatat.
+- transfer_wallet: pindah saldo antar dompet milik user.
 - create_wallet: buat dompet baru, termasuk dompet emas.
 - create_category: buat kategori.
 - create_budget: set budget kategori.
@@ -342,13 +366,15 @@ Actions:
 
 Schema:
 {
-  "action": "general_chat|create_transaction|delete_transaction|create_wallet|create_category|create_budget|balance_summary|gold_price|insight|clarify|none",
+  "action": "general_chat|create_transaction|delete_transaction|transfer_wallet|create_wallet|create_category|create_budget|balance_summary|gold_price|insight|clarify|none",
   "reply": "isi untuk general_chat atau clarify",
   "title": "optional",
   "amount": 25000,
   "type": "income|expense",
   "transactionId": "optional",
   "walletName": "optional",
+  "sourceWalletName": "optional untuk transfer dari dompet mana",
+  "destinationWalletName": "optional untuk transfer ke dompet mana",
   "walletKind": "cash|bank|ewallet|credit_card|paylater|investment|gold",
   "gold_grams": 0.01,
   "categoryName": "optional",
@@ -361,6 +387,7 @@ Nominal wajib angka rupiah. 50k jadi 50000. 2.5jt jadi 2500000.
 Emas wajib gram, misalnya 0.01g jadi gold_grams 0.01.
 Jangan mengarang nominal atau gram. Kalau kurang detail, action clarify.
 Untuk delete_transaction, gunakan amount/note/walletName/date bila user menyebut detail. Kalau user bilang transaksi terakhir/terbaru, action delete_transaction tanpa mengarang detail.
+Untuk transfer antar dompet, gunakan action transfer_wallet, sourceWalletName untuk dompet asal, destinationWalletName untuk dompet tujuan, dan amount.
 Jika pesan berisi revisi aksi yang belum dikonfirmasi, utamakan "Revisi terbaru user" dibanding konfirmasi sebelumnya. Contoh: "pakai BCA aja" berarti ganti walletName ke BCA untuk aksi yang sama.
 
 Konteks finance:
@@ -381,6 +408,8 @@ ${message}`;
     model: result.model,
     action: normalizeAction(parsed.action),
     amount: normalizeAmount(parsed.amount ?? parsed.balance ?? parsed.total),
+    sourceWalletName: cleanText(parsed.sourceWalletName || parsed.source_wallet_name || parsed.fromWalletName || parsed.from_wallet_name || parsed.fromWallet || parsed.sourceWallet),
+    destinationWalletName: cleanText(parsed.destinationWalletName || parsed.destination_wallet_name || parsed.toWalletName || parsed.to_wallet_name || parsed.toWallet || parsed.destinationWallet),
     gold_grams: normalizeGrams(parsed.gold_grams ?? parsed.grams)
   };
 }
@@ -405,6 +434,8 @@ async function executeIntent({ supabase, appUserId, message, intent, data, metri
       return createTransaction(supabase, appUserId, intent, data);
     case "delete_transaction":
       return deleteTransaction(supabase, appUserId, intent, data);
+    case "transfer_wallet":
+      return transferWallet(supabase, appUserId, intent, data);
     case "insight": {
       const result = await callAI({
         task: "advisor",
@@ -429,6 +460,8 @@ async function previewIntent({ intent, data }) {
       return previewTransaction(intent, data);
     case "delete_transaction":
       return previewDeleteTransaction(intent, data);
+    case "transfer_wallet":
+      return previewTransfer(intent, data);
     case "create_wallet":
       return previewWallet(intent);
     case "create_category":
@@ -488,13 +521,30 @@ function previewDeleteTransaction(intent, data) {
   const wallet = data.wallets.find((item) => item.id === transaction.wallet_id);
   const category = data.categories.find((item) => item.id === transaction.category_id);
   const amount = number(transaction.amount);
-  const nextBalance = wallet ? number(wallet.balance) + reverseTransactionDelta(transaction) : null;
+  const transactionsToDelete = getLinkedTransferTransactions(data, transaction);
+  const walletPlans = buildWalletRestorePlans(data, transactionsToDelete);
+  const blockedPlan = walletPlans.find((plan) => !isDebtWallet(plan.wallet) && plan.nextBalance < 0);
 
-  if (wallet && !isDebtWallet(wallet) && nextBalance < 0) {
+  if (blockedPlan) {
     return {
       blocked: true,
       needsConfirmation: false,
-      reply: `Transaksi pemasukan ${money(amount)} tidak bisa dihapus karena saldo ${wallet.name} akan minus.`
+      reply: `Transaksi tidak bisa dihapus karena saldo ${blockedPlan.wallet.name} akan minus.`
+    };
+  }
+
+  if (isTransferTransaction(transaction)) {
+    const sourcePlan = walletPlans.find((plan) => plan.delta > 0);
+    const destinationPlan = walletPlans.find((plan) => plan.delta < 0);
+    return {
+      needsConfirmation: true,
+      reply: [
+        `Konfirmasi hapus transfer ini:`,
+        `${money(amount)} ${sourcePlan?.wallet?.name ? `kembali ke ${sourcePlan.wallet.name}` : ""}${destinationPlan?.wallet?.name ? ` dan dikurangi dari ${destinationPlan.wallet.name}` : ""}`.trim(),
+        transaction.note ? `Catatan: ${transaction.note}` : "",
+        "",
+        `Balas *ya* untuk hapus atau *batal* untuk membatalkan.`
+      ].filter(Boolean).join("\n")
     };
   }
 
@@ -510,6 +560,38 @@ function previewDeleteTransaction(intent, data) {
       wallet ? `Saldo ${wallet.name} akan ${transaction.type === "expense" ? "bertambah" : "berkurang"} ${money(amount)}.` : "",
       "",
       `Balas *ya* untuk hapus atau *batal* untuk membatalkan.`
+    ].filter(Boolean).join("\n")
+  };
+}
+
+function previewTransfer(intent, data) {
+  const amount = normalizeAmount(intent.amount);
+  if (!amount) return { needsConfirmation: false, reply: "Nominal transfernya belum kebaca. Contoh: transfer 100rb dari Cash ke BCA." };
+
+  const source = pickWallet(data.wallets, intent.sourceWalletName || intent.walletName);
+  const destination = pickDestinationWallet(data.wallets, intent.destinationWalletName, source?.id);
+  if (!source) return { needsConfirmation: false, reply: "Dompet asalnya belum ketemu. Sebutkan dari dompet mana ya." };
+  if (!destination) return { needsConfirmation: false, reply: "Dompet tujuannya belum ketemu. Sebutkan mau transfer ke dompet mana ya." };
+  if (source.id === destination.id) return { needsConfirmation: false, reply: "Dompet asal dan tujuan harus berbeda." };
+  if (source.type === "gold" || destination.type === "gold") {
+    return { needsConfirmation: false, reply: "Dompet emas tidak bisa dipakai untuk transfer rupiah." };
+  }
+  if (!isDebtWallet(source) && number(source.balance) < amount) {
+    return {
+      blocked: true,
+      needsConfirmation: false,
+      reply: `Saldo ${source.name} tidak cukup. Sisa ${money(source.balance)}, transfer ${money(amount)} tidak bisa diproses.`
+    };
+  }
+
+  return {
+    needsConfirmation: true,
+    reply: [
+      `Konfirmasi transfer saldo:`,
+      `${money(amount)} dari ${source.name} ke ${destination.name}`,
+      intent.note ? `Catatan: ${cleanText(intent.note)}` : "",
+      "",
+      `Balas *ya* untuk transfer atau *batal* untuk membatalkan.`
     ].filter(Boolean).join("\n")
   };
 }
@@ -753,27 +835,36 @@ async function deleteTransaction(supabase, userId, intent, data) {
 
   const wallet = data.wallets.find((item) => item.id === transaction.wallet_id);
   const amount = number(transaction.amount);
-  const reverseDelta = reverseTransactionDelta(transaction);
-  const nextBalance = wallet ? number(wallet.balance) + reverseDelta : null;
+  const transactionsToDelete = getLinkedTransferTransactions(data, transaction);
+  const walletPlans = buildWalletRestorePlans(data, transactionsToDelete);
+  const blockedPlan = walletPlans.find((plan) => !isDebtWallet(plan.wallet) && plan.nextBalance < 0);
 
-  if (wallet && !isDebtWallet(wallet) && nextBalance < 0) {
-    return { reply: `Transaksi pemasukan ${money(amount)} tidak bisa dihapus karena saldo ${wallet.name} akan minus.` };
+  if (blockedPlan) {
+    return { reply: `Transaksi tidak bisa dihapus karena saldo ${blockedPlan.wallet.name} akan minus.` };
   }
 
+  const ids = transactionsToDelete.map((item) => item.id);
   const deleted = await supabase
     .from("transactions")
     .delete()
-    .eq("id", transaction.id)
+    .in("id", ids)
     .eq("user_id", userId);
   if (deleted.error) throw deleted.error;
 
-  if (wallet) {
+  for (const plan of walletPlans) {
     const update = await supabase
       .from("wallets")
-      .update({ balance: nextBalance })
-      .eq("id", wallet.id)
+      .update({ balance: plan.nextBalance })
+      .eq("id", plan.wallet.id)
       .eq("user_id", userId);
     if (update.error) throw update.error;
+  }
+
+  if (isTransferTransaction(transaction)) {
+    return {
+      changed: true,
+      reply: `Transfer ${money(amount)} berhasil dihapus dan saldo dompet asal/tujuan sudah dikembalikan.`
+    };
   }
 
   return {
@@ -781,6 +872,75 @@ async function deleteTransaction(supabase, userId, intent, data) {
     reply: wallet
       ? `Transaksi ${money(amount)} berhasil dihapus. Saldo ${wallet.name} ${transaction.type === "expense" ? "bertambah" : "berkurang"} ${money(amount)}.`
       : `Transaksi ${money(amount)} berhasil dihapus.`
+  };
+}
+
+async function transferWallet(supabase, userId, intent, data) {
+  const amount = normalizeAmount(intent.amount);
+  if (!amount) return { reply: "Nominal transfernya belum kebaca. Contoh: transfer 100rb dari Cash ke BCA." };
+
+  const source = pickWallet(data.wallets, intent.sourceWalletName || intent.walletName);
+  const destination = pickDestinationWallet(data.wallets, intent.destinationWalletName, source?.id);
+  if (!source) return { reply: "Dompet asalnya belum ketemu. Sebutkan dari dompet mana ya." };
+  if (!destination) return { reply: "Dompet tujuannya belum ketemu. Sebutkan mau transfer ke dompet mana ya." };
+  if (source.id === destination.id) return { reply: "Dompet asal dan tujuan harus berbeda." };
+  if (source.type === "gold" || destination.type === "gold") {
+    return { reply: "Dompet emas tidak bisa dipakai untuk transfer rupiah." };
+  }
+  if (!isDebtWallet(source) && number(source.balance) < amount) {
+    return { reply: `Saldo ${source.name} tidak cukup. Sisa ${money(source.balance)}.` };
+  }
+
+  const transferCategories = await ensureTransferCategories(supabase, userId, data.categories);
+  const groupId = createUuid();
+  const date = validDate(intent.date) || isoDate(new Date());
+  const note = cleanText(intent.note || intent.title || `Transfer ${source.name} ke ${destination.name}`);
+
+  const inserted = await supabase.from("transactions").insert([
+    {
+      user_id: userId,
+      wallet_id: source.id,
+      category_id: transferCategories.expense.id,
+      type: "expense",
+      amount,
+      transaction_date: date,
+      note,
+      is_transfer: true,
+      transfer_group_id: groupId,
+      transfer_wallet_id: destination.id
+    },
+    {
+      user_id: userId,
+      wallet_id: destination.id,
+      category_id: transferCategories.income.id,
+      type: "income",
+      amount,
+      transaction_date: date,
+      note,
+      is_transfer: true,
+      transfer_group_id: groupId,
+      transfer_wallet_id: source.id
+    }
+  ]);
+  if (inserted.error) throw inserted.error;
+
+  const sourceUpdate = await supabase
+    .from("wallets")
+    .update({ balance: number(source.balance) - amount })
+    .eq("id", source.id)
+    .eq("user_id", userId);
+  if (sourceUpdate.error) throw sourceUpdate.error;
+
+  const destinationUpdate = await supabase
+    .from("wallets")
+    .update({ balance: number(destination.balance) + amount })
+    .eq("id", destination.id)
+    .eq("user_id", userId);
+  if (destinationUpdate.error) throw destinationUpdate.error;
+
+  return {
+    changed: true,
+    reply: `Transfer ${money(amount)} dari ${source.name} ke ${destination.name} berhasil.`
   };
 }
 
@@ -823,6 +983,31 @@ async function findOrCreateCategory(supabase, userId, categories, name, type) {
   return saved.data;
 }
 
+async function ensureTransferCategories(supabase, userId, categories = []) {
+  const existingExpense = findByName(categories.filter((category) => category.type === "expense"), "Transfer");
+  const existingIncome = findByName(categories.filter((category) => category.type === "income"), "Transfer");
+  const missingRows = [
+    existingExpense ? null : { user_id: userId, name: "Transfer", type: "expense", color: "#64748b", icon: "arrow-right-left", is_default: true },
+    existingIncome ? null : { user_id: userId, name: "Transfer", type: "income", color: "#64748b", icon: "arrow-right-left", is_default: true }
+  ].filter(Boolean);
+
+  let savedCategories = [];
+  if (missingRows.length) {
+    const saved = await supabase
+      .from("categories")
+      .upsert(missingRows, { onConflict: "user_id,type,name" })
+      .select("*");
+    if (saved.error) throw saved.error;
+    savedCategories = saved.data || [];
+  }
+
+  const allCategories = [...categories, ...savedCategories];
+  return {
+    expense: findByName(allCategories.filter((category) => category.type === "expense"), "Transfer"),
+    income: findByName(allCategories.filter((category) => category.type === "income"), "Transfer")
+  };
+}
+
 async function logAiEvent(supabase, userId, kind, prompt, result) {
   try {
     await supabase.from("ai_events").insert({
@@ -844,6 +1029,11 @@ async function logAiEvent(supabase, userId, kind, prompt, result) {
 
 function pickWallet(wallets, walletName) {
   const rupiahWallets = wallets.filter((wallet) => wallet.type !== "gold");
+  return findByName(rupiahWallets, walletName) || rupiahWallets.find((wallet) => !["credit_card", "paylater"].includes(wallet.type)) || rupiahWallets[0] || null;
+}
+
+function pickDestinationWallet(wallets, walletName, sourceWalletId) {
+  const rupiahWallets = wallets.filter((wallet) => wallet.type !== "gold" && wallet.id !== sourceWalletId);
   return findByName(rupiahWallets, walletName) || rupiahWallets.find((wallet) => !["credit_card", "paylater"].includes(wallet.type)) || rupiahWallets[0] || null;
 }
 
@@ -895,6 +1085,34 @@ function findTransaction(data, intent) {
 function reverseTransactionDelta(transaction) {
   const amount = number(transaction.amount);
   return transaction.type === "income" ? -amount : amount;
+}
+
+function isTransferTransaction(transaction) {
+  return Boolean(transaction?.is_transfer || transaction?.transfer_group_id || transaction?.transfer_wallet_id);
+}
+
+function getFinanceTransactions(data) {
+  return (data.transactions || []).filter((transaction) => !isTransferTransaction(transaction));
+}
+
+function getLinkedTransferTransactions(data, transaction) {
+  if (!transaction) return [];
+  if (!isTransferTransaction(transaction) || !transaction.transfer_group_id) return [transaction];
+  return data.transactions.filter((item) => item.transfer_group_id === transaction.transfer_group_id);
+}
+
+function buildWalletRestorePlans(data, transactions) {
+  const deltas = new Map();
+  transactions.forEach((transaction) => {
+    if (!transaction?.wallet_id) return;
+    deltas.set(transaction.wallet_id, (deltas.get(transaction.wallet_id) || 0) + reverseTransactionDelta(transaction));
+  });
+  return [...deltas.entries()]
+    .map(([walletId, delta]) => {
+      const wallet = data.wallets.find((item) => item.id === walletId);
+      return wallet ? { wallet, delta, nextBalance: number(wallet.balance) + delta } : null;
+    })
+    .filter(Boolean);
 }
 
 function isDebtWallet(wallet) {
@@ -975,15 +1193,18 @@ function buildFinanceContext(data, budgets, metrics) {
       amount: number(transaction.amount),
       date: transaction.transaction_date,
       note: transaction.note,
+      is_transfer: isTransferTransaction(transaction),
       category: data.categories.find((category) => category.id === transaction.category_id)?.name || null,
-      wallet: data.wallets.find((wallet) => wallet.id === transaction.wallet_id)?.name || null
+      wallet: data.wallets.find((wallet) => wallet.id === transaction.wallet_id)?.name || null,
+      paired_wallet: data.wallets.find((wallet) => wallet.id === transaction.transfer_wallet_id)?.name || null
     }))
   }, null, 2);
 }
 
 function getMetrics(data) {
   const month = monthKey(new Date());
-  const monthTransactions = data.transactions.filter((item) => monthKey(item.transaction_date) === month);
+  const financeTransactions = getFinanceTransactions(data);
+  const monthTransactions = financeTransactions.filter((item) => monthKey(item.transaction_date) === month);
   const monthlyIncome = sum(monthTransactions.filter((item) => item.type === "income"), "amount");
   const monthlyExpense = sum(monthTransactions.filter((item) => item.type === "expense"), "amount");
   const assets = sum(data.wallets.filter((item) => !["credit_card", "paylater"].includes(item.type)), "balance");
@@ -1006,8 +1227,9 @@ function getMetrics(data) {
 
 function enrichBudgets(data) {
   const month = monthKey(new Date());
-  const income = sum(data.transactions.filter((item) => item.type === "income" && monthKey(item.transaction_date) === month), "amount");
-  const expenses = data.transactions.filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month);
+  const financeTransactions = getFinanceTransactions(data);
+  const income = sum(financeTransactions.filter((item) => item.type === "income" && monthKey(item.transaction_date) === month), "amount");
+  const expenses = financeTransactions.filter((item) => item.type === "expense" && monthKey(item.transaction_date) === month);
   return data.budgets
     .filter((item) => !item.period_start || monthKey(item.period_start) === month)
     .map((budget) => {
@@ -1104,6 +1326,14 @@ function parseGramText(text) {
   if (!match) return 0;
   const grams = Number(match[1].replace(",", "."));
   return Number.isFinite(grams) ? grams : 0;
+}
+
+function createUuid() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    return (char === "x" ? value : (value & 0x3) | 0x8).toString(16);
+  });
 }
 
 function findByName(items, name) {
