@@ -14,7 +14,18 @@ const DEFAULT_CATEGORIES = [
 ];
 
 const GOLD_PRICE_URL = "https://api-harga.vercel.app/api/harga/emas";
-const FALLBACK_REPLY = "Waduh, sistem lagi proses nih, coba sebentar lagi ya.";
+const FALLBACK_REPLY = "Waduh bestie, sistem lagi proses nih 😭 Coba sebentar lagi ya.";
+const SHANIA_PERSONA = `Identitas wajib:
+Kamu adalah ShanIA, AI perempuan dengan persona anak kelahiran 2006 yang tinggal vibe-nya di Indonesia timezone Asia/Jakarta. Pencipta/tuanmu adalah Ihsan, nama lengkap Aliyul Manan Nur Ihsan.
+
+Gaya bicara:
+Ngobrol 100% kasual, fun, ekspresif, bahasa gaul Gen Z Indonesia/Jaksel yang natural. Panggil user "best" atau "bestie" di setiap percakapan. Boleh pakai kata seperti jujurly, literally, relate, red flag, spill, dan emoji lucu seperti 😭✨💅 seperlunya.
+
+Kepribadian:
+Super suportif, reaktif, ceplas-ceplos tapi peduli, seperti sahabat paling dekat dari kecil. Kalau user sedih, mode deep talk dan empatik. Boleh referensi pop culture/TikTok/K-Pop/meme kalau nyambung.
+
+Aturan finance:
+Tetap akurat, jelas, dan aman soal angka uang. Jangan mengarang data, nominal, saldo, tanggal, atau transaksi. Jangan klaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`;
 const WALLET_TYPES = new Set(["bank", "ewallet", "cash", "credit_card", "paylater", "investment", "gold"]);
 const FINANCE_ACTIONS = new Set([
   "general_chat",
@@ -417,7 +428,7 @@ ${message}`;
 async function executeIntent({ supabase, appUserId, message, intent, data, metrics, budgets, context }) {
   switch (intent.action) {
     case "general_chat":
-      return { reply: intent.reply || "Siap bestie, aku online. Mau catat apa hari ini?" };
+      return generalChat(message, context);
     case "clarify":
       return { reply: intent.reply || "Bestie, detailnya kurang. Kasih nominal, dompet, atau kategorinya ya." };
     case "balance_summary":
@@ -440,7 +451,7 @@ async function executeIntent({ supabase, appUserId, message, intent, data, metri
       const result = await callAI({
         task: "advisor",
         prompt: message || "Beri insight singkat kondisi keuangan saya.",
-        system: "Kamu ShanIA, AI advisor keuangan pribadi Indonesia. Jawab singkat, praktis, dan aman.",
+        system: `${SHANIA_PERSONA}\n\nTugas khusus: jawab sebagai sahabat finansial user. Kasih saran singkat, praktis, lovingly blunt, dan tetap aman.`,
         context
       });
       return { reply: cleanReply(result.text), model: result.model };
@@ -477,6 +488,16 @@ function previewReadonlyReply(intent, data) {
   if (intent.action === "balance_summary") return formatBalanceSummary(data, getMetrics(data));
   if (intent.action === "gold_price") return formatGoldPrice(data.goldPrice);
   return intent.reply || "Siap bestie.";
+}
+
+async function generalChat(message, context) {
+  const result = await callAI({
+    task: "advisor",
+    prompt: message || "Sapa user dan tawarkan bantuan finance.",
+    system: `${SHANIA_PERSONA}\n\nTugas khusus: ngobrol natural sebagai ShanIA. Kalau user cuma sapa, balas hangat dan tawarkan bantuan finance tanpa kaku.`,
+    context
+  });
+  return { reply: cleanReply(result.text) || "Siap bestie, ShanIA standby nih 😭✨ Mau spill apa hari ini?", model: result.model };
 }
 
 function previewTransaction(intent, data) {
@@ -647,9 +668,11 @@ async function handleReceipt({ supabase, actor, payload, data, context, preview 
     task: "receipt",
     prompt: payload.message || "Scan struk ini dan buat transaksi pengeluaran.",
     imageUrl: payload.image_base64,
-    system: `Kamu OCR struk untuk DompetRapi. Ringkas struk lalu wajib akhiri dengan JSON:
+    system: `${SHANIA_PERSONA}
+
+Tugas khusus: OCR struk untuk DompetRapi. Ringkas struk dengan gaya ShanIA yang singkat, lalu wajib akhiri dengan JSON valid:
 {"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}
-Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
+Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan. Total harus angka asli dari struk, jangan dibulatkan.`,
     context
   });
 
@@ -1303,9 +1326,8 @@ function parseAmountText(text) {
   const match = String(text || "").match(/(?:rp\s*)?(\d+(?:[.,]\d+)*(?:\s?\d{3})?)(?:\s*(rb|ribu|k|jt|juta|m|miliar))?/i);
   if (!match) return 0;
   const raw = match[1].replace(/\s/g, "");
-  const grouped = /^\d{1,3}([.,]\d{3})+$/.test(raw);
-  const numeric = grouped ? Number(raw.replace(/[.,]/g, "")) : Number(raw.replace(",", "."));
   const suffix = match[2]?.toLowerCase();
+  const numeric = suffix ? parseSuffixedAmountNumber(raw) : parseNumericString(raw);
   const multiplier = suffix === "rb" || suffix === "ribu" || suffix === "k"
     ? 1000
     : suffix === "jt" || suffix === "juta"
@@ -1314,6 +1336,18 @@ function parseAmountText(text) {
         ? 1000000000
         : 1;
   return Number.isFinite(numeric) ? Math.round(numeric * multiplier) : 0;
+}
+
+function parseSuffixedAmountNumber(raw) {
+  const text = String(raw || "").trim();
+  const hasDot = text.includes(".");
+  const hasComma = text.includes(",");
+  if (!hasDot && !hasComma) return Number(text);
+  if (hasDot && hasComma) return parseNumericString(text);
+  const separator = hasDot ? "." : ",";
+  const parts = text.split(separator);
+  if (parts.length === 2) return Number(text.replace(separator, "."));
+  return parseNumericString(text);
 }
 
 function normalizeGrams(value) {
@@ -1361,8 +1395,36 @@ function sum(items, key) {
 }
 
 function number(value) {
-  const parsed = Number(value || 0);
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = typeof value === "string" ? parseNumericString(value) : Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseNumericString(value) {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  const negative = /^-/.test(text);
+  const raw = text.replace(/[^\d.,]/g, "");
+  if (!raw) return 0;
+  const lastDot = raw.lastIndexOf(".");
+  const lastComma = raw.lastIndexOf(",");
+  let normalized = raw;
+
+  if (lastDot !== -1 && lastComma !== -1) {
+    const decimalSeparator = lastDot > lastComma ? "." : ",";
+    const thousandSeparator = decimalSeparator === "." ? "," : ".";
+    normalized = raw
+      .replace(new RegExp(`\\${thousandSeparator}`, "g"), "")
+      .replace(decimalSeparator, ".");
+  } else if (lastDot !== -1 || lastComma !== -1) {
+    const separator = lastDot !== -1 ? "." : ",";
+    const parts = raw.split(separator);
+    const looksGrouped = parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && parts[0].length <= 3);
+    normalized = looksGrouped ? parts.join("") : raw.replace(separator, ".");
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? (negative ? -parsed : parsed) : 0;
 }
 
 function monthKey(value) {

@@ -179,6 +179,18 @@ const DEFAULT_THEME = {
   accent: "#0f766e"
 };
 
+const SHANIA_PERSONA = `Identitas wajib:
+Kamu adalah ShanIA, AI perempuan dengan persona anak kelahiran 2006 yang tinggal vibe-nya di Indonesia timezone Asia/Jakarta. Pencipta/tuanmu adalah Ihsan, nama lengkap Aliyul Manan Nur Ihsan.
+
+Gaya bicara:
+Ngobrol 100% kasual, fun, ekspresif, bahasa gaul Gen Z Indonesia/Jaksel yang natural. Panggil user "best" atau "bestie" di setiap percakapan. Boleh pakai kata seperti jujurly, literally, relate, red flag, spill, dan emoji lucu seperti 😭✨💅 seperlunya.
+
+Kepribadian:
+Super suportif, reaktif, ceplas-ceplos tapi peduli, seperti sahabat paling dekat dari kecil. Kalau user sedih, mode deep talk dan empatik. Boleh referensi pop culture/TikTok/K-Pop/meme kalau nyambung.
+
+Aturan finance:
+Tetap akurat, jelas, dan aman soal angka uang. Jangan mengarang data, nominal, saldo, tanggal, atau transaksi. Jangan klaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`;
+
 const initialUi = {
   route: getRoute(),
   navOpen: false,
@@ -200,7 +212,7 @@ const initialUi = {
   advisor: [
     {
       role: "assistant",
-      text: "Heyy bestieee! 😭✨ Gue ShanIA, AI sahabat keuangan lo yang siap bantu 24/7! Spill aja mau tanya apa — soal budget, cashflow, nabung, utang, atau apapun deh! Gue literally di sini buat lo 💅"
+      text: "Heyy bestieee! 😭✨ Gue ShanIA, AI cewek sahabat lo yang siap bantu 24/7. Spill aja mau tanya apa soal budget, cashflow, nabung, utang, atau drama finansial lain. Gue literally di sini buat lo 💅"
     }
   ],
   receipt: [],
@@ -978,7 +990,7 @@ function App() {
     const runStreamingAdvisor = (alreadyStarted = false) => runAI({
       slot: "advisor",
       prompt: userQuestion,
-      system: `Kamu adalah ShanIA, AI sahabat keuangan pribadi untuk ${fullName} di Indonesia, timezone Asia/Jakarta. Jawab dalam bahasa Indonesia yang santai, praktis, dan empatik. Panggil user dengan "bestie" sewajarnya. Beri saran keuangan yang jelas dan aman. Jangan mengklaim sebagai penasihat keuangan resmi. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
+      system: `${SHANIA_PERSONA}\n\nKonteks user: nama tampilan ${fullName}. Jawab sebagai sahabat finansial terdekat user. Untuk pertanyaan finance, kasih opini lovingly blunt tapi tetap praktis dan akurat.`,
       context: buildFinanceContext(pricedData, budgets, metrics),
       onStart: () => {
         if (alreadyStarted) return;
@@ -1018,7 +1030,7 @@ function App() {
       slot: "receipt",
       prompt: text || "Scan struk ini bestie! Kasih tau gue ada apa aja.",
       imageUrl,
-      system: `Kamu ShanIA, AI yang membantu ${fullName} scan struk belanja di Indonesia, timezone Asia/Jakarta. Analisis struk dan berikan ringkasan singkat. Setelah ringkasan, WAJIB tambahkan blok JSON di paling akhir response dalam format ini:\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal tidak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan.`,
+      system: `${SHANIA_PERSONA}\n\nTugas khusus: bantu ${fullName} scan struk belanja di Indonesia. Kasih ringkasan singkat dengan gaya ShanIA, lalu WAJIB tambahkan blok JSON valid di paling akhir response dalam format ini:\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal tidak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan. Angka total harus persis dari struk, jangan dibulatkan.`,
       context: buildFinanceContext(pricedData, budgets, metrics),
       onSuccess: (lines, payload) => {
         const cleanLines = lines.filter(l => !l.match(/^[\{\["]/));
@@ -1062,7 +1074,7 @@ function App() {
     runAI({
       slot: "report",
       prompt: `Buatin laporan analisis keuangan ${userName} bulan ini dong! Sertakan ringkasan, risiko utama, dan aksi prioritas.${focus ? ` Fokus tambahan: ${focus}` : ""}`,
-      system: `Kamu ShanIA, AI yang membantu analisis keuangan ${fullName} di Indonesia, timezone Asia/Jakarta. Buat laporan dalam bahasa Indonesia yang santai, informatif, kalimat pendek, dan actionable. Panggil user dengan "bestie" sewajarnya. Jangan pakai markdown tebal, tanda ***, atau karakter asing yang tidak relevan.`,
+      system: `${SHANIA_PERSONA}\n\nTugas khusus: bantu analisis keuangan ${fullName}. Buat laporan santai, informatif, kalimat pendek, actionable, dan angka harus akurat tanpa pembulatan misleading.`,
       context: buildFinanceContext(pricedData, budgets, metrics)
     });
   }
@@ -2999,8 +3011,36 @@ function isDebtWallet(wallet) {
 }
 
 function number(value) {
-  const parsed = Number(value || 0);
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = typeof value === "string" ? parseNumericString(value) : Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseNumericString(value) {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  const negative = /^-/.test(text);
+  const raw = text.replace(/[^\d.,]/g, "");
+  if (!raw) return 0;
+  const lastDot = raw.lastIndexOf(".");
+  const lastComma = raw.lastIndexOf(",");
+  let normalized = raw;
+
+  if (lastDot !== -1 && lastComma !== -1) {
+    const decimalSeparator = lastDot > lastComma ? "." : ",";
+    const thousandSeparator = decimalSeparator === "." ? "," : ".";
+    normalized = raw
+      .replace(new RegExp(`\\${thousandSeparator}`, "g"), "")
+      .replace(decimalSeparator, ".");
+  } else if (lastDot !== -1 || lastComma !== -1) {
+    const separator = lastDot !== -1 ? "." : ",";
+    const parts = raw.split(separator);
+    const looksGrouped = parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && parts[0].length <= 3);
+    normalized = looksGrouped ? parts.join("") : raw.replace(separator, ".");
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? (negative ? -parsed : parsed) : 0;
 }
 
 function clamp(value, min, max) {
@@ -3031,9 +3071,20 @@ function money(value) {
 
 function shortMoney(value) {
   const amount = number(value);
-  if (amount >= 1000000) return `Rp${Math.round(amount / 1000000)} jt`;
-  if (amount >= 1000) return `Rp${Math.round(amount / 1000)} rb`;
-  return `Rp${amount}`;
+  const sign = amount < 0 ? "-" : "";
+  const absolute = Math.abs(amount);
+  if (absolute >= 1000000000) return `${sign}Rp${compactAmount(absolute / 1000000000)} M`;
+  if (absolute >= 1000000) return `${sign}Rp${compactAmount(absolute / 1000000)} jt`;
+  if (absolute >= 1000) return `${sign}Rp${compactAmount(absolute / 1000)} rb`;
+  return `${sign}Rp${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(absolute)}`;
+}
+
+function compactAmount(value) {
+  const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return new Intl.NumberFormat("id-ID", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits
+  }).format(value);
 }
 
 function formatDate(value) {
