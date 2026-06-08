@@ -670,9 +670,9 @@ async function handleReceipt({ supabase, actor, payload, data, context, preview 
     imageUrl: payload.image_base64,
     system: `${SHANIA_PERSONA}
 
-Tugas khusus: OCR struk untuk DompetRapi. Ringkas struk dengan gaya ShanIA yang singkat, lalu wajib akhiri dengan JSON valid:
+Tugas khusus: OCR struk untuk DompetRapi. Tanggal hari ini adalah ${isoDate(new Date())}. Ringkas struk dengan gaya ShanIA yang singkat, lalu wajib akhiri dengan JSON valid:
 {"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}
-Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan. Total harus angka asli dari struk, jangan dibulatkan.`,
+Kalau tanggal tidak ada di struk, pakai tanggal hari ini (${isoDate(new Date())}). Category pilih: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan. Total harus angka asli dari struk, jangan dibulatkan.`,
     context
   });
 

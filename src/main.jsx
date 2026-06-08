@@ -369,7 +369,7 @@ function App() {
   const isPro = true;
 
   async function refreshData(message) {
-    if (!boot.supabase || !boot.session) return;
+    if (!boot.supabase || !boot.session) return false;
     const supabase = boot.supabase;
     const userId = boot.session.user.id;
 
@@ -403,7 +403,7 @@ function App() {
         setData(mapped);
         setBoot((current) => ({ ...current, backend }));
         if (message) notify(message);
-        return;
+        return true;
       }
 
       await ensureUserSetup(supabase, boot.session.user);
@@ -435,9 +435,11 @@ function App() {
       });
       setBoot((current) => ({ ...current, backend }));
       if (message) notify(message);
+      return true;
     } catch (error) {
       console.error(error);
       notify("Gagal memuat data. Cek config dan schema Supabase.");
+      return false;
     }
   }
 
@@ -505,7 +507,7 @@ function App() {
         }
       });
     if (error) {
-      notify(error.message, "danger");
+      notify(formatAuthError(error), "danger");
       return false;
     }
     notify(ui.authMode === "login" ? "Berhasil masuk." : "Akun dibuat. Cek email jika konfirmasi aktif.");
@@ -528,7 +530,7 @@ function App() {
       }
     });
     if (error) {
-      notify(error.message, "danger");
+      notify(formatAuthError(error), "danger");
       return false;
     }
     return true;
@@ -560,12 +562,22 @@ function App() {
   }
 
   async function saveWallet(values) {
-    if (guardDemo()) return;
+    if (guardDemo()) return false;
     const isGold = values.type === "gold";
     const goldGrams = Math.max(0, number(values.gold_grams));
-    if (isGold && goldGrams <= 0) return notify("Jumlah emas harus lebih dari 0 gram.", "warning");
+    if (!values.name?.trim()) {
+      notify("Nama dompet wajib diisi.", "warning");
+      return false;
+    }
+    if (isGold && goldGrams <= 0) {
+      notify("Jumlah emas harus lebih dari 0 gram.", "warning");
+      return false;
+    }
     if (boot.backend === "fintrack") {
-      if (isGold) return notify("Dompet emas membutuhkan schema DompetRapi terbaru.", "warning");
+      if (isGold) {
+        notify("Dompet emas membutuhkan schema DompetRapi terbaru.", "warning");
+        return false;
+      }
       const payload = {
         id: values.id || makeId("wallet"),
         name: values.name,
@@ -577,10 +589,13 @@ function App() {
         ? boot.supabase.from("fintrack_wallets").update(payload).eq("id", values.id)
         : boot.supabase.from("fintrack_wallets").insert(payload);
       const { error } = await query;
-      if (error) return notify(error.message);
+      if (error) {
+        notify(error.message, "danger");
+        return false;
+      }
       setUi((current) => ({ ...current, walletEditId: null }));
-      refreshData("Dompet tersimpan ke Supabase.");
-      return;
+      await refreshData("Dompet tersimpan ke Supabase.");
+      return true;
     }
     const payload = {
       user_id: boot.session.user.id,
@@ -594,22 +609,40 @@ function App() {
       ? boot.supabase.from("wallets").update(payload).eq("id", values.id).eq("user_id", boot.session.user.id)
       : boot.supabase.from("wallets").insert(payload);
     const { error } = await query;
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message, "danger");
+      return false;
+    }
     setUi((current) => ({ ...current, walletEditId: null }));
-    refreshData("Dompet disimpan.");
+    await refreshData("Dompet disimpan.");
+    return true;
   }
 
   async function saveTransaction(values) {
-    if (guardDemo()) return;
+    if (guardDemo()) return false;
     const wallet = data.wallets.find((item) => item.id === values.wallet_id);
     const amount = number(values.amount);
 
+    if (!wallet) {
+      notify("Pilih dompet dulu.", "warning");
+      return false;
+    }
+    if (!values.category_id) {
+      notify("Pilih kategori dulu.", "warning");
+      return false;
+    }
+    if (!amount || amount <= 0) {
+      notify("Nominal transaksi harus lebih dari 0.", "warning");
+      return false;
+    }
     if (wallet?.type === "gold") {
-      return notify("Dompet emas dikelola dalam gram dan tidak menerima transaksi rupiah biasa.", "warning");
+      notify("Dompet emas dikelola dalam gram dan tidak menerima transaksi rupiah biasa.", "warning");
+      return false;
     }
 
     if (values.type === "expense" && wallet && number(wallet.balance) < amount) {
-      return notify(`Saldo ${wallet.name} tidak cukup! (Sisa: ${money(wallet.balance)})`, "danger");
+      notify(`Saldo ${wallet.name} tidak cukup! (Sisa: ${money(wallet.balance)})`, "danger");
+      return false;
     }
 
     if (boot.backend === "fintrack") {
@@ -624,14 +657,21 @@ function App() {
         note: values.note || null
       };
       const { error } = await boot.supabase.from("fintrack_transactions").insert(payload);
-      if (error) return notify(error.message);
+      if (error) {
+        notify(error.message, "danger");
+        return false;
+      }
       if (wallet) {
         const delta = values.type === "income" ? amount : -amount;
         const nextBalance = Math.max(0, number(wallet.balance) + delta);
-        await boot.supabase.from("fintrack_wallets").update({ balance: nextBalance }).eq("id", wallet.id);
+        const update = await boot.supabase.from("fintrack_wallets").update({ balance: nextBalance }).eq("id", wallet.id);
+        if (update.error) {
+          notify(update.error.message, "danger");
+          return false;
+        }
       }
-      refreshData("Transaksi tersimpan ke Supabase.");
-      return;
+      await refreshData("Transaksi tersimpan ke Supabase.");
+      return true;
     }
     const payload = {
       user_id: boot.session.user.id,
@@ -643,36 +683,57 @@ function App() {
       note: values.note || null
     };
     const { error } = await boot.supabase.from("transactions").insert(payload);
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message, "danger");
+      return false;
+    }
     if (wallet) {
       const delta = values.type === "income" ? amount : -amount;
-      await boot.supabase.from("wallets").update({ balance: number(wallet.balance) + delta }).eq("id", wallet.id).eq("user_id", boot.session.user.id);
+      const update = await boot.supabase.from("wallets").update({ balance: number(wallet.balance) + delta }).eq("id", wallet.id).eq("user_id", boot.session.user.id);
+      if (update.error) {
+        notify(update.error.message, "danger");
+        return false;
+      }
     }
-    refreshData("Transaksi ditambahkan.");
+    await refreshData("Transaksi ditambahkan.");
+    return true;
   }
 
   async function saveTransfer(values) {
-    if (guardDemo()) return;
+    if (guardDemo()) return false;
     if (boot.backend !== "dompetrapi") {
-      return notify("Transfer antar dompet membutuhkan schema DompetRapi terbaru.", "warning");
+      notify("Transfer antar dompet membutuhkan schema DompetRapi terbaru.", "warning");
+      return false;
     }
 
     const amount = number(values.amount);
     const source = data.wallets.find((item) => item.id === values.source_wallet_id);
     const destination = data.wallets.find((item) => item.id === values.destination_wallet_id);
-    if (!amount || amount <= 0) return notify("Nominal transfer harus lebih dari 0.", "warning");
-    if (!source || !destination) return notify("Pilih dompet asal dan tujuan dulu.", "warning");
-    if (source.id === destination.id) return notify("Dompet asal dan tujuan harus berbeda.", "warning");
+    if (!amount || amount <= 0) {
+      notify("Nominal transfer harus lebih dari 0.", "warning");
+      return false;
+    }
+    if (!source || !destination) {
+      notify("Pilih dompet asal dan tujuan dulu.", "warning");
+      return false;
+    }
+    if (source.id === destination.id) {
+      notify("Dompet asal dan tujuan harus berbeda.", "warning");
+      return false;
+    }
     if (source.type === "gold" || destination.type === "gold") {
-      return notify("Dompet emas tidak bisa dipakai untuk transfer rupiah.", "warning");
+      notify("Dompet emas tidak bisa dipakai untuk transfer rupiah.", "warning");
+      return false;
     }
     if (!isDebtWallet(source) && number(source.balance) < amount) {
-      return notify(`Saldo ${source.name} tidak cukup! (Sisa: ${money(source.balance)})`, "danger");
+      notify(`Saldo ${source.name} tidak cukup! (Sisa: ${money(source.balance)})`, "danger");
+      return false;
     }
 
     const transferCategories = await ensureTransferCategories(boot.supabase, boot.session.user.id, data.categories);
     if (!transferCategories.expense || !transferCategories.income) {
-      return notify("Kategori Transfer belum bisa disiapkan.", "danger");
+      notify("Kategori Transfer belum bisa disiapkan.", "danger");
+      return false;
     }
 
     const groupId = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : makeId("transfer");
@@ -706,62 +767,104 @@ function App() {
     ];
 
     const inserted = await boot.supabase.from("transactions").insert(rows);
-    if (inserted.error) return notify(inserted.error.message);
+    if (inserted.error) {
+      notify(inserted.error.message, "danger");
+      return false;
+    }
 
     const sourceUpdate = await boot.supabase
       .from("wallets")
       .update({ balance: number(source.balance) - amount })
       .eq("id", source.id)
       .eq("user_id", boot.session.user.id);
-    if (sourceUpdate.error) return notify(sourceUpdate.error.message);
+    if (sourceUpdate.error) {
+      notify(sourceUpdate.error.message, "danger");
+      return false;
+    }
 
     const destinationUpdate = await boot.supabase
       .from("wallets")
       .update({ balance: number(destination.balance) + amount })
       .eq("id", destination.id)
       .eq("user_id", boot.session.user.id);
-    if (destinationUpdate.error) return notify(destinationUpdate.error.message);
+    if (destinationUpdate.error) {
+      notify(destinationUpdate.error.message, "danger");
+      return false;
+    }
 
-    refreshData(`Transfer ${money(amount)} dari ${source.name} ke ${destination.name} berhasil.`);
+    await refreshData(`Transfer ${money(amount)} dari ${source.name} ke ${destination.name} berhasil.`);
+    return true;
   }
 
   async function saveBudget(values) {
-    if (guardDemo()) return;
+    if (guardDemo()) return false;
+    const amount = number(values.amount);
+    const method = values.method === "percentage" ? "percentage" : "fixed";
+    const percentage = values.percentage ? number(values.percentage) : null;
+    if (!values.category_id) {
+      notify("Pilih kategori budget dulu.", "warning");
+      return false;
+    }
+    if (method === "fixed" && (!amount || amount <= 0)) {
+      notify("Limit nominal budget harus lebih dari 0.", "warning");
+      return false;
+    }
+    if (method === "percentage" && (!percentage || percentage <= 0 || percentage > 100)) {
+      notify("Persentase budget harus 1 sampai 100.", "warning");
+      return false;
+    }
+    const currentMonth = monthKey(periodStart());
+    const existingCurrentBudget = data.budgets.find((item) =>
+      item.category_id === values.category_id &&
+      (!item.period_start || monthKey(item.period_start) === currentMonth)
+    );
+    if (!values.id && existingCurrentBudget) {
+      setUi((current) => ({ ...current, budgetEditId: existingCurrentBudget.id, budgetModal: true }));
+      notify("Budget kategori ini sudah ada bulan ini. Gue buka mode edit biar nggak ketimpa diam-diam.", "warning");
+      return false;
+    }
     if (boot.backend === "fintrack") {
       const payload = {
         id: values.id || makeId("budget"),
         category_id: values.category_id,
-        amount: number(values.amount),
+        amount,
         period: "monthly"
       };
       const query = values.id
         ? boot.supabase.from("fintrack_budgets").update(payload).eq("id", values.id)
         : boot.supabase.from("fintrack_budgets").insert(payload);
       const { error } = await query;
-      if (error) return notify(error.message);
+      if (error) {
+        notify(error.message, "danger");
+        return false;
+      }
       setUi((current) => ({ ...current, budgetEditId: null }));
-      refreshData("Budget tersimpan ke Supabase.");
-      return;
+      await refreshData("Budget tersimpan ke Supabase.");
+      return true;
     }
     const payload = {
       user_id: boot.session.user.id,
       category_id: values.category_id,
       period_start: periodStart(),
-      method: values.method,
-      amount: number(values.amount),
-      percentage: values.percentage ? number(values.percentage) : null
+      method,
+      amount,
+      percentage
     };
     const query = values.id
       ? boot.supabase.from("budgets").update(payload).eq("id", values.id).eq("user_id", boot.session.user.id)
-      : boot.supabase.from("budgets").upsert(payload, { onConflict: "user_id,category_id,period_start" });
+      : boot.supabase.from("budgets").insert(payload);
     const { error } = await query;
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message, "danger");
+      return false;
+    }
     setUi((current) => ({ ...current, budgetEditId: null }));
-    refreshData("Budget disimpan.");
+    await refreshData("Budget disimpan.");
+    return true;
   }
 
   async function saveGoal(values) {
-    if (guardDemo()) return;
+    if (guardDemo()) return false;
     if (boot.backend === "fintrack") {
       const id = values.id || makeId("goal");
       const goals = readFintrackGoals(boot.session.user.id).filter((goal) => goal.id !== id);
@@ -774,8 +877,8 @@ function App() {
       });
       writeFintrackGoals(boot.session.user.id, goals);
       setUi((current) => ({ ...current, goalEditId: null }));
-      refreshData("Goal disimpan lokal untuk schema fintrack.");
-      return;
+      await refreshData("Goal disimpan lokal untuk schema fintrack.");
+      return true;
     }
     const payload = {
       user_id: boot.session.user.id,
@@ -788,9 +891,13 @@ function App() {
       ? boot.supabase.from("goals").update(payload).eq("id", values.id).eq("user_id", boot.session.user.id)
       : boot.supabase.from("goals").insert(payload);
     const { error } = await query;
-    if (error) return notify(error.message);
+    if (error) {
+      notify(error.message, "danger");
+      return false;
+    }
     setUi((current) => ({ ...current, goalEditId: null }));
-    refreshData("Goal disimpan.");
+    await refreshData("Goal disimpan.");
+    return true;
   }
 
   function deleteRow(table, id, message) {
@@ -1026,11 +1133,24 @@ function App() {
   function runReceiptPreview(text, imageUrl) {
     const userName = profile?.full_name?.split(" ")[0] || "bestie";
     const fullName = profile?.full_name || userName;
+    const manualReceipt = !imageUrl ? parseManualReceipt(text) : null;
+    if (manualReceipt) {
+      setUi((current) => ({
+        ...current,
+        receipt: [
+          `Input manual kebaca ${manualReceipt.items.length} item.`,
+          `Total ${money(manualReceipt.total)} siap disimpan.`,
+          `Tanggal ${formatDate(manualReceipt.date)}.`
+        ],
+        scanResult: manualReceipt
+      }));
+      return;
+    }
     runAI({
       slot: "receipt",
       prompt: text || "Scan struk ini bestie! Kasih tau gue ada apa aja.",
       imageUrl,
-      system: `${SHANIA_PERSONA}\n\nTugas khusus: bantu ${fullName} scan struk belanja di Indonesia. Kasih ringkasan singkat dengan gaya ShanIA, lalu WAJIB tambahkan blok JSON valid di paling akhir response dalam format ini:\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal tidak ada di struk, pakai tanggal hari ini. Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan. Angka total harus persis dari struk, jangan dibulatkan.`,
+      system: `${SHANIA_PERSONA}\n\nTugas khusus: bantu ${fullName} scan struk belanja di Indonesia. Tanggal hari ini adalah ${isoDate(new Date())}. Kasih ringkasan singkat dengan gaya ShanIA, lalu WAJIB tambahkan blok JSON valid di paling akhir response dalam format ini:\n\`\`\`json\n{"total": 0, "date": "YYYY-MM-DD", "merchant": "nama toko", "note": "deskripsi singkat", "category": "Makanan"}\n\`\`\`\nKalau tanggal tidak ada di struk, pakai tanggal hari ini (${isoDate(new Date())}). Category pilih salah satu: Makanan, Transportasi, Belanja, Hiburan, Kesehatan, Tagihan. Angka total harus persis dari struk, jangan dibulatkan.`,
       context: buildFinanceContext(pricedData, budgets, metrics),
       onSuccess: (lines, payload) => {
         const cleanLines = lines.filter(l => !l.match(/^[\{\["]/));
@@ -1117,7 +1237,7 @@ function App() {
         streamedText = payload.text || streamedText;
         streamedModel = payload.model || streamedModel;
         streamedProvider = payload.provider || streamedProvider;
-        const lines = splitAiText(streamedText);
+        const lines = slot === "report" ? splitReportText(streamedText) : splitAiText(streamedText);
         if (onSuccess) {
           onSuccess(lines, { text: streamedText, model: streamedModel, streamed: true });
         } else {
@@ -1131,7 +1251,7 @@ function App() {
       }
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "AI gagal merespons.");
-      const lines = splitAiText(payload.text);
+      const lines = slot === "report" ? splitReportText(payload.text) : splitAiText(payload.text);
       if (onSuccess) {
         onSuccess(lines, payload);
       } else {
@@ -1325,6 +1445,8 @@ function Workspace(props) {
   const titleMap = {
     dashboard: ["Dashboard", "Ringkasan bulan ini."],
     wallets: ["Dompet", "Saldo dari semua tempat."],
+    debts: ["Utang", "Kartu kredit dan PayLater."],
+    investments: ["Investasi", "Aset investasi dan emas."],
     transactions: ["Transaksi", "Catat pemasukan dan pengeluaran."],
     budgets: ["Budget", "Pantau limit kategori."],
     goals: ["Goals", "Target tabungan."],
@@ -1413,6 +1535,8 @@ function Workspace(props) {
 
         {page === "dashboard" && <Dashboard data={data} budgets={budgets} metrics={metrics} theme={theme} setUi={setUi} ui={ui} profile={profile} />}
         {page === "wallets" && <Wallets {...props} />}
+        {page === "debts" && <WalletFocusPage {...props} mode="debt" />}
+        {page === "investments" && <WalletFocusPage {...props} mode="investment" />}
         {page === "transactions" && <Transactions {...props} />}
         {page === "budgets" && <Budgets {...props} />}
         {page === "goals" && <Goals {...props} />}
@@ -1428,9 +1552,9 @@ function Workspace(props) {
           ui={ui}
           setUi={setUi}
           demo={props.demo}
-          onTransaction={(values) => {
-            props.onTransaction(values);
-            setUi(c => ({ ...c, txModal: false }));
+          onTransaction={async (values) => {
+            const ok = await props.onTransaction(values);
+            if (ok !== false) setUi(c => ({ ...c, txModal: false }));
           }}
         />
       ) : null}
@@ -1440,9 +1564,9 @@ function Workspace(props) {
           ui={ui}
           setUi={setUi}
           demo={props.demo}
-          onTransfer={(values) => {
-            props.onTransfer(values);
-            setUi(c => ({ ...c, transferModal: false }));
+          onTransfer={async (values) => {
+            const ok = await props.onTransfer(values);
+            if (ok !== false) setUi(c => ({ ...c, transferModal: false }));
           }}
         />
       ) : null}
@@ -1467,6 +1591,13 @@ function HeaderAction({ page, setUi }) {
     return (
       <button className="btn quiet" onClick={() => setUi(c => ({ ...c, transferModal: true }))}>
         <ArrowRightLeft size={18} /> Transfer
+      </button>
+    );
+  }
+  if (page === "debts" || page === "investments") {
+    return (
+      <button className="btn primary" onClick={() => setUi(c => ({ ...c, walletModal: true }))}>
+        <Plus size={18} /> Tambah Dompet
       </button>
     );
   }
@@ -1533,8 +1664,8 @@ function Dashboard({ data, budgets, metrics, theme, setUi, ui, profile }) {
     [ScanLine, "Scan", "AI scanner", () => go("app/pro-scan")],
     [Target, "Goals", "Target nabung", () => go("app/goals")],
     [WalletCards, "Aset", "Semua saldo", () => go("app/wallets")],
-    [CreditCard, "Utang", "Kartu & PayLater", () => go("app/wallets")],
-    [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/wallets")],
+    [CreditCard, "Utang", "Kartu & PayLater", () => go("app/debts")],
+    [CircleDollarSign, "Investasi", "Pantau aset", () => go("app/investments")],
     [Bot, "AI Chat", "Advisor ShanIA", () => go("app/pro-chat")],
     [BarChart3, "Analisis", "Laporan AI", () => go("app/pro-report")]
   ];
@@ -1792,34 +1923,78 @@ function Wallets({ data, ui, setUi, demo, backend, goldPrice, onWallet, onDelete
       </div>
       <section className="cards-grid">
         {data.wallets.map((wallet) => (
-          <article className="wallet-tile" key={wallet.id}>
-            <div className="tile-top">
-              <span
-                className="wallet-swatch"
-                style={wallet.color?.startsWith("#") ? { background: wallet.color } : { background: "var(--surface)", fontSize: "1.4rem", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--line-subtle)" }}
-              >
-                {!wallet.color?.startsWith("#") && wallet.color}
-              </span>
-              <div>
-                <h3>{wallet.name}</h3>
-                <p>{walletType(wallet.type)}</p>
-              </div>
-            </div>
-            <strong>{wallet.type === "gold" && !goldPrice?.perGram ? "Menunggu harga" : money(wallet.balance)}</strong>
-            {wallet.type === "gold" ? (
-              <div className="gold-wallet-meta">
-                <b>{formatGrams(wallet.gold_grams)} g</b>
-                <span>{goldPrice?.perGram ? `${money(goldPrice.perGram)} / gram` : "Harga belum tersedia"}</span>
-              </div>
-            ) : null}
-            <div className="tile-actions">
-              <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id, walletModal: true }))}><Pencil size={16} /></button>
-              <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Dompet dihapus.")}><Trash2 size={16} /></button>
-            </div>
-          </article>
+          <WalletCard key={wallet.id} wallet={wallet} goldPrice={goldPrice} demo={demo} setUi={setUi} onDelete={onDelete} />
         ))}
       </section>
 
+      {ui.walletModal && (
+        <WalletModal edit={edit} ui={ui} setUi={setUi} demo={demo} backend={backend} goldPrice={goldPrice} onWallet={onWallet} />
+      )}
+    </div>
+  );
+}
+
+function WalletCard({ wallet, goldPrice, demo, setUi, onDelete }) {
+  return (
+    <article className="wallet-tile">
+      <div className="tile-top">
+        <span
+          className="wallet-swatch"
+          style={wallet.color?.startsWith("#") ? { background: wallet.color } : { background: "var(--surface)", fontSize: "1.4rem", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--line-subtle)" }}
+        >
+          {!wallet.color?.startsWith("#") && wallet.color}
+        </span>
+        <div>
+          <h3>{wallet.name}</h3>
+          <p>{walletType(wallet.type)}</p>
+        </div>
+      </div>
+      <strong>{wallet.type === "gold" && !goldPrice?.perGram ? "Menunggu harga" : money(wallet.balance)}</strong>
+      {wallet.type === "gold" ? (
+        <div className="gold-wallet-meta">
+          <b>{formatGrams(wallet.gold_grams)} g</b>
+          <span>{goldPrice?.perGram ? `${money(goldPrice.perGram)} / gram` : "Harga belum tersedia"}</span>
+        </div>
+      ) : null}
+      <div className="tile-actions">
+        <button className="icon-btn" onClick={() => setUi((current) => ({ ...current, walletEditId: wallet.id, walletModal: true }))}><Pencil size={16} /></button>
+        <button className="icon-btn" disabled={demo} onClick={() => onDelete("wallets", wallet.id, "Dompet dihapus.")}><Trash2 size={16} /></button>
+      </div>
+    </article>
+  );
+}
+
+function WalletFocusPage({ data, ui, setUi, demo, backend, goldPrice, mode, onWallet, onDelete }) {
+  const isDebt = mode === "debt";
+  const wallets = data.wallets.filter((wallet) =>
+    isDebt ? ["credit_card", "paylater"].includes(wallet.type) : ["investment", "gold"].includes(wallet.type)
+  );
+  const total = isDebt
+    ? Math.abs(sum(wallets, "balance"))
+    : sum(wallets, "balance");
+  const edit = data.wallets.find((item) => item.id === ui.walletEditId);
+
+  return (
+    <div className="single-col">
+      {!isDebt ? <GoldPriceBar goldPrice={goldPrice} /> : null}
+      <section className={`panel wallet-focus-hero ${isDebt ? "debt" : "investment"}`}>
+        <div>
+          <span className="mini-badge">{isDebt ? "Liabilitas" : "Aset produktif"}</span>
+          <h3>{isDebt ? "Ringkasan utang aktif" : "Ringkasan investasi"}</h3>
+          <p>{isDebt ? "Pantau kartu kredit dan PayLater tanpa kecampur dompet harian." : "Pantau investasi rupiah dan emas dengan nilai emas live."}</p>
+        </div>
+        <strong>{money(total)}</strong>
+      </section>
+      <section className="cards-grid">
+        {wallets.length ? wallets.map((wallet) => (
+          <WalletCard key={wallet.id} wallet={wallet} goldPrice={goldPrice} demo={demo} setUi={setUi} onDelete={onDelete} />
+        )) : (
+          <Empty
+            title={isDebt ? "Belum ada dompet utang" : "Belum ada aset investasi"}
+            copy={isDebt ? "Tambah dompet tipe Kartu kredit atau PayLater." : "Tambah dompet tipe Investasi atau Emas."}
+          />
+        )}
+      </section>
       {ui.walletModal && (
         <WalletModal edit={edit} ui={ui} setUi={setUi} demo={demo} backend={backend} goldPrice={goldPrice} onWallet={onWallet} />
       )}
@@ -2010,8 +2185,8 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
           <form onSubmit={(event) => {
             event.preventDefault();
             const image = receiptDraft.imageData || receiptDraft.imageUrl;
-            onReceipt(receiptDraft.text, image);
             setUi(c => ({ ...c, scanResult: null }));
+            onReceipt(receiptDraft.text, image);
           }}>
             <div className="capture-grid">
               <label className={`capture-card ${!isPro ? "disabled" : ""}`}>
@@ -2078,9 +2253,9 @@ function ProLab({ data, metrics, isPro, ui, setUi, onAdvisor, onReceipt, onRepor
                   ["note", "text", "Catatan", ui.scanResult.note || ui.scanResult.merchant || ""]
                 ]}
                 submitLabel="Simpan Transaksi ✨"
-                onSubmit={(values) => {
-                  onTransaction(values);
-                  setUi(c => ({ ...c, scanResult: null, receipt: [] }));
+                onSubmit={async (values) => {
+                  const ok = await onTransaction(values);
+                  if (ok !== false) setUi(c => ({ ...c, scanResult: null, receipt: [] }));
                 }}
               />
             </div>
@@ -2316,10 +2491,10 @@ function GoldGramInput({ name, defaultValue, disabled, perGram }) {
 
 function SmartForm({ fields, defaults = {}, disabled, submitLabel, onSubmit, beforeSubmit }) {
   return (
-    <form className="smart-form" onSubmit={(event) => {
+    <form className="smart-form" onSubmit={async (event) => {
       event.preventDefault();
       const values = Object.fromEntries(new FormData(event.currentTarget));
-      onSubmit(beforeSubmit ? beforeSubmit(values) : values);
+      await onSubmit(beforeSubmit ? beforeSubmit(values) : values);
     }}>
       {fields.map(([name, type, label, options, onChange, marker]) => {
         if (type === "hidden") return <input key={name} name={name} type="hidden" defaultValue={defaults?.[name] || ""} />;
@@ -2461,14 +2636,16 @@ function Progress({ value, danger, warning }) {
   );
 }
 
-function AiOutput({ lines }) {
-  const safeLines = Array.isArray(lines) ? lines : lines ? [lines] : [];
+function AiOutput({ lines, variant }) {
+  const rawLines = Array.isArray(lines) ? lines : lines ? [lines] : [];
+  const safeLines = variant === "report" ? normalizeReportLines(rawLines) : rawLines.map(cleanAiLine).filter(Boolean);
   if (!safeLines.length) return null;
   return (
-    <div className="ai-output">
+    <div className={`ai-output ${variant === "report" ? "report-output" : ""}`}>
       {safeLines.map((line, index) => (
         <article className="ai-result-card" key={index}>
-          <p>{cleanAiLine(line)}</p>
+          <span aria-hidden="true">{index + 1}</span>
+          <p>{line}</p>
         </article>
       ))}
     </div>
@@ -3010,6 +3187,72 @@ function isDebtWallet(wallet) {
   return ["credit_card", "paylater"].includes(wallet?.type);
 }
 
+function parseManualReceipt(text) {
+  const rows = String(text || "")
+    .split(/\n|;/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!rows.length) return null;
+
+  const items = rows.map((line) => {
+    const match = line.match(/^(.*?)(?:\s+|:\s*)(?:rp\s*)?(\d[\d.,]*(?:\s*(?:rb|ribu|k|jt|juta|m|miliar))?)$/i);
+    if (!match) return null;
+    const amount = parseAmountText(match[2]);
+    const name = cleanAiLine(match[1] || "Item");
+    return amount > 0 ? { name, amount } : null;
+  }).filter(Boolean);
+
+  if (!items.length || items.length < rows.length) return null;
+  const total = items.reduce((sumTotal, item) => sumTotal + item.amount, 0);
+  const note = items.map((item) => `${item.name} ${money(item.amount)}`).join(", ");
+  return {
+    total,
+    date: isoDate(new Date()),
+    merchant: "Input manual",
+    note,
+    category: inferReceiptCategory(note),
+    items
+  };
+}
+
+function parseAmountText(text) {
+  const match = String(text || "").match(/(?:rp\s*)?(\d+(?:[.,]\d+)*(?:\s?\d{3})?)(?:\s*(rb|ribu|k|jt|juta|m|miliar))?/i);
+  if (!match) return 0;
+  const raw = match[1].replace(/\s/g, "");
+  const suffix = match[2]?.toLowerCase();
+  const numeric = suffix ? parseSuffixedAmountNumber(raw) : parseNumericString(raw);
+  const multiplier = suffix === "rb" || suffix === "ribu" || suffix === "k"
+    ? 1000
+    : suffix === "jt" || suffix === "juta"
+      ? 1000000
+      : suffix === "m" || suffix === "miliar"
+        ? 1000000000
+        : 1;
+  return Number.isFinite(numeric) ? Math.round(numeric * multiplier) : 0;
+}
+
+function parseSuffixedAmountNumber(raw) {
+  const text = String(raw || "").trim();
+  const hasDot = text.includes(".");
+  const hasComma = text.includes(",");
+  if (!hasDot && !hasComma) return Number(text);
+  if (hasDot && hasComma) return parseNumericString(text);
+  const separator = hasDot ? "." : ",";
+  const parts = text.split(separator);
+  if (parts.length === 2) return Number(text.replace(separator, "."));
+  return parseNumericString(text);
+}
+
+function inferReceiptCategory(text) {
+  const value = String(text || "").toLowerCase();
+  if (/kopi|roti|makan|nasi|ayam|bakso|mie|minum|cafe|resto|warung|snack/.test(value)) return "Makanan";
+  if (/bensin|gojek|grab|parkir|tol|bus|kereta|transport/.test(value)) return "Transportasi";
+  if (/obat|dokter|klinik|vitamin|apotek/.test(value)) return "Kesehatan";
+  if (/listrik|internet|pulsa|tagihan|sewa|cicilan/.test(value)) return "Tagihan";
+  if (/bioskop|game|netflix|spotify|hiburan/.test(value)) return "Hiburan";
+  return "Belanja";
+}
+
 function number(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const parsed = typeof value === "string" ? parseNumericString(value) : Number(value || 0);
@@ -3063,6 +3306,14 @@ function formatClock(value) {
     minute: "2-digit",
     second: "2-digit"
   }).format(date);
+}
+
+function formatAuthError(error) {
+  const message = String(error?.message || error || "");
+  if (/captcha|captcha_token|no captcha_token/i.test(message)) {
+    return "Captcha Protection masih aktif di Supabase Auth. Matikan di Dashboard > Authentication > Bot and Abuse Protection > Enable CAPTCHA protection, lalu coba login lagi.";
+  }
+  return message || "Login gagal. Coba lagi sebentar ya.";
 }
 
 function money(value) {
@@ -3373,7 +3624,7 @@ function WalletModal({ edit, ui, setUi, demo, backend, goldPrice, onWallet }) {
         </div>
         <SmartForm
           disabled={demo}
-          defaults={{ ...edit, type: walletKind, balance: isGold ? 0 : edit?.balance, gold_grams: edit?.gold_grams || "" }}
+          defaults={{ ...edit, type: walletKind, balance: isGold ? 0 : (edit?.balance ?? 0), gold_grams: edit?.gold_grams || "" }}
           fields={[
             ["id", "hidden"],
             ["name", "text", "Nama dompet", isGold ? "Emas tabungan" : "BCA Harian"],
@@ -3397,10 +3648,10 @@ function WalletModal({ edit, ui, setUi, demo, backend, goldPrice, onWallet }) {
             ]]
           ]}
           submitLabel={edit ? "Simpan Dompet" : "Tambah Dompet"}
-          onSubmit={(v) => {
+          onSubmit={async (v) => {
             if (v.type === "gold" && (!edit || v.color === "#0f766e")) v.color = "#ca8a04";
-            onWallet(v);
-            setUi(c => ({ ...c, walletModal: false, walletEditId: null }));
+            const ok = await onWallet(v);
+            if (ok !== false) setUi(c => ({ ...c, walletModal: false, walletEditId: null }));
           }}
         />
       </div>
@@ -3433,9 +3684,9 @@ function BudgetModal({ edit, ui, setUi, demo, expenseCategories, onBudget }) {
             ["percentage", "number", "Persentase", "15"]
           ]}
           submitLabel={edit ? "Simpan Budget" : "Tambah Budget"}
-          onSubmit={(v) => {
-            onBudget(v);
-            setUi(c => ({ ...c, budgetModal: false, budgetEditId: null }));
+          onSubmit={async (v) => {
+            const ok = await onBudget(v);
+            if (ok !== false) setUi(c => ({ ...c, budgetModal: false, budgetEditId: null }));
           }}
         />
       </div>
@@ -3492,6 +3743,37 @@ function splitAiText(text) {
     .map((line) => cleanAiLine(line.replace(/^\d+[\.)]\s*/, "")))
     .filter(Boolean)
     .slice(0, 8);
+}
+
+function splitReportText(text) {
+  const rawLines = String(text || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => cleanAiLine(line))
+    .filter(Boolean);
+  if (!rawLines.length) return [];
+
+  const tinyLineRatio = rawLines.filter((line) => line.split(/\s+/).length <= 2).length / rawLines.length;
+  const body = rawLines.length > 10 && tinyLineRatio > 0.6
+    ? rawLines.join(" ")
+    : String(text || "").replace(/\r/g, "");
+
+  return body
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .split(/\n{2,}|\n(?=(?:[-*\u2022]|\d+[\.)])\s)/)
+    .map((line) => cleanAiLine(line.replace(/^\d+[\.)]\s*/, "")))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizeReportLines(lines) {
+  const rawLines = lines.map((line) => cleanAiLine(line)).filter(Boolean);
+  if (!rawLines.length) return [];
+  const tinyLineRatio = rawLines.filter((line) => line.split(/\s+/).length <= 2).length / rawLines.length;
+  if (rawLines.length > 10 && tinyLineRatio > 0.6) {
+    return splitReportText(rawLines.join(" "));
+  }
+  return rawLines;
 }
 
 function legacySplitAiText(text) {
